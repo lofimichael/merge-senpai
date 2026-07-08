@@ -1,0 +1,369 @@
+name: Merge Senpai
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to review
+        required: true
+      reason:
+        description: Why this review was dispatched
+        required: false
+        default: manual
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-senpai-${{ inputs.pr_number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  SENPAI_BRAND: Merge Senpai
+  SENPAI_DEFAULT_MODEL: gpt-5.4-mini
+  SENPAI_MODEL: gpt-5.4-mini
+
+jobs:
+  review:
+    name: review
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve pull request context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="${{ inputs.pr_number }}"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          BASE_REF="$(jq -r '.base.ref' "$RUNNER_TEMP/pr.json")"
+          HEAD_REF="$(jq -r '.head.ref' "$RUNNER_TEMP/pr.json")"
+          HEAD_SHA="$(jq -r '.head.sha' "$RUNNER_TEMP/pr.json")"
+          HEAD_REPO="$(jq -r '.head.repo.full_name' "$RUNNER_TEMP/pr.json")"
+
+          {
+            echo "PR_NUMBER=$PR_NUMBER"
+            echo "BASE_REF=$BASE_REF"
+            echo "HEAD_REF=$HEAD_REF"
+            echo "HEAD_SHA=$HEAD_SHA"
+            echo "HEAD_REPO=$HEAD_REPO"
+          } >> "$GITHUB_ENV"
+
+      - name: Gate secret-backed review
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          enabled=true
+          reason=""
+
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            enabled=false
+            reason="Merge Senpai skipped this fork PR because GitHub does not pass repository secrets to fork-triggered workflows. Ask a maintainer to run a trusted same-repo review if needed."
+          elif [ "${{ secrets.MERGE_SENPAI_OPENAI_KEY != '' }}" != "true" ]; then
+            enabled=false
+            reason="Merge Senpai is installed, but MERGE_SENPAI_OPENAI_KEY is not configured yet."
+          fi
+
+          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
+
+          if [ "$enabled" != "true" ]; then
+            {
+              echo "## Merge Senpai"
+              echo
+              echo "$reason"
+            } > "$RUNNER_TEMP/senpai-skip.md"
+            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-skip.md" || true
+            cat "$RUNNER_TEMP/senpai-skip.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout pull request merge
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --depth=1 || true
+          git fetch origin "refs/pull/$PR_NUMBER/merge:refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || true
+          git fetch origin "refs/pull/$PR_NUMBER/head:refs/remotes/origin/senpai-pr-$PR_NUMBER" || true
+          git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER"
+
+      - name: Prepare Codex review prompt
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          set -euo pipefail
+          git show "origin/$BASE_REF:.github/senpai.yml" > "$RUNNER_TEMP/base-senpai.yml" 2>/dev/null || cp .github/senpai.yml "$RUNNER_TEMP/base-senpai.yml"
+          MODEL="$(sed -n -E 's/^model:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
+          echo "SENPAI_MODEL=${MODEL:-$SENPAI_DEFAULT_MODEL}" >> "$GITHUB_ENV"
+
+          cat > "$RUNNER_TEMP/senpai.schema.json" <<'JSON'
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["verdict", "grade", "summary", "persona_line", "briefing_script", "image_prompt", "findings"],
+            "properties": {
+              "verdict": { "type": "string", "enum": ["clean", "comment", "request_changes"] },
+              "grade": { "type": "string" },
+              "summary": { "type": "string" },
+              "persona_line": { "type": "string" },
+              "briefing_script": { "type": "string" },
+              "image_prompt": { "type": "string" },
+              "findings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["severity", "title", "file", "line", "message", "suggestion"],
+                  "properties": {
+                    "severity": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+                    "title": { "type": "string" },
+                    "file": { "type": "string" },
+                    "line": { "type": "integer" },
+                    "message": { "type": "string" },
+                    "suggestion": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+          JSON
+
+          git diff --unified=80 "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || git diff --unified=80 HEAD~1...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || true
+          git diff --stat "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.stat" 2>/dev/null || true
+
+          cat > "$RUNNER_TEMP/senpai.prompt.md" <<'PROMPT'
+          You are Merge Senpai, a stern but caring CI reviewer.
+
+          Review this pull request for correctness, security, data loss, broken tests, migration risk, and surprising behavior. Prefer high-signal findings over style nits.
+
+          Output only JSON matching the provided schema. Persona is allowed only in persona_line, summary, briefing_script, and optionally finding titles. Keep finding messages clinical and actionable.
+
+          Severity policy:
+          - P0: security/data-loss/corruption or guaranteed production breakage.
+          - P1: likely correctness bug, broken core workflow, missing critical test.
+          - P2: important maintainability or edge-case issue.
+          - P3: minor concern or polish.
+
+          If there are no material issues, return verdict "clean" with an empty findings array.
+          PROMPT
+
+          {
+            echo
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "Pull request: #$PR_NUMBER"
+            echo "Base ref: $BASE_REF"
+            echo "Head ref: $HEAD_REF"
+            echo "Head SHA: $HEAD_SHA"
+            echo
+            echo "Base-branch Merge Senpai config:"
+            sed -n '1,220p' "$RUNNER_TEMP/base-senpai.yml"
+            echo
+            echo "Diff stat:"
+            sed -n '1,160p' "$RUNNER_TEMP/pr.stat"
+            echo
+            echo "Unified diff, truncated if needed:"
+            head -c 120000 "$RUNNER_TEMP/pr.diff"
+          } >> "$RUNNER_TEMP/senpai.prompt.md"
+
+      - name: Run Codex review
+        if: steps.gate.outputs.enabled == 'true'
+        id: codex
+        continue-on-error: true
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.MERGE_SENPAI_OPENAI_KEY }}
+          model: ${{ env.SENPAI_MODEL }}
+          prompt-file: ${{ runner.temp }}/senpai.prompt.md
+          output-file: ${{ runner.temp }}/senpai-review.json
+          sandbox: read-only
+          codex-args: '["--ephemeral", "--output-schema", "${{ runner.temp }}/senpai.schema.json"]'
+
+      - name: Normalize review JSON
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const path = `${process.env.RUNNER_TEMP}/senpai-review.json`;
+          let raw = fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch {
+            const match = raw.match(/\{[\s\S]*\}/);
+            if (match) {
+              try { parsed = JSON.parse(match[0]); } catch {}
+            }
+          }
+          if (!parsed || !Array.isArray(parsed.findings)) {
+            parsed = {
+              verdict: "comment",
+              grade: "?",
+              summary: "Codex did not return valid review JSON. The raw response is attached in the workflow logs.",
+              persona_line: "I asked for clean JSON and got a paper crane instead. Hmph.",
+              briefing_script: "Merge Senpai could not parse the review output. Please inspect the workflow logs and re-run the review.",
+              image_prompt: "",
+              findings: []
+            };
+          }
+          fs.writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`);
+          NODE
+
+      - name: Post branded review
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const review = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/senpai-review.json`, "utf8"));
+          const findings = Array.isArray(review.findings) ? review.findings : [];
+          const blockers = findings.filter(f => ["P0", "P1"].includes(String(f.severity))).length;
+          const avatarUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${process.env.BASE_REF}/.github/merge-senpai/avatar.png`;
+          const marker = `<!-- merge-senpai:review:${process.env.PR_NUMBER}:${process.env.HEAD_SHA} -->`;
+
+          function mdEscape(value) {
+            return String(value ?? "").replace(/\r/g, "").trim();
+          }
+          function cmdEscape(value) {
+            return String(value ?? "")
+              .replace(/%/g, "%25")
+              .replace(/\r/g, "%0D")
+              .replace(/\n/g, "%0A");
+          }
+          function propEscape(value) {
+            return cmdEscape(value).replace(/,/g, "%2C").replace(/:/g, "%3A");
+          }
+          function htmlEscape(value) {
+            return String(value ?? "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;");
+          }
+
+          let body = `${marker}\n<img src="${avatarUrl}" width="72" align="right" alt="Merge Senpai" />\n\n`;
+          body += `# Merge Senpai says: ${mdEscape(review.grade || "?")}\n\n`;
+          body += `**Verdict:** \`${mdEscape(review.verdict || "comment")}\`  \n`;
+          body += `**Findings:** ${findings.length} total, ${blockers} blocking-class\n\n`;
+          body += `> ${mdEscape(review.persona_line || "I reviewed it because somebody had to.")}\n\n`;
+          body += `${mdEscape(review.summary || "No summary returned.")}\n\n`;
+
+          if (findings.length) {
+            body += `## Findings\n\n`;
+            for (const finding of findings) {
+              const sev = mdEscape(finding.severity || "P3");
+              const file = mdEscape(finding.file || "");
+              const line = Number.isFinite(Number(finding.line)) ? Number(finding.line) : 1;
+              body += `### ${sev}: ${mdEscape(finding.title || "Untitled finding")}\n\n`;
+              body += `\`${file}:${line}\`\n\n`;
+              body += `${mdEscape(finding.message || "")}\n\n`;
+              if (finding.suggestion) {
+                body += `**Suggestion:** ${mdEscape(finding.suggestion)}\n\n`;
+              }
+
+              const level = ["P0", "P1"].includes(sev) ? "warning" : "notice";
+              const title = `${sev}: ${finding.title || "Merge Senpai finding"}`;
+              const props = [`file=${propEscape(file)}`, `line=${line}`, `title=${propEscape(title)}`].join(",");
+              console.log(`::${level} ${props}::${cmdEscape(finding.message || title)}`);
+            }
+          } else {
+            body += `No material findings. Don't get smug.\n\n`;
+          }
+
+          body += `---\n`;
+          body += `Generated inside this repository by \`Merge Senpai\` using the repository's own \`MERGE_SENPAI_OPENAI_KEY\`.\n`;
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/senpai-review.md`, body);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n`);
+
+          const localAvatar = ".github/merge-senpai/avatar.png";
+          const avatarData = fs.existsSync(localAvatar) ? fs.readFileSync(localAvatar).toString("base64") : "";
+          const avatarSrc = avatarData ? `data:image/png;base64,${avatarData}` : avatarUrl;
+          const rows = findings.map(f => `
+            <article>
+              <strong>${htmlEscape(f.severity || "P3")} - ${htmlEscape(f.title || "Untitled finding")}</strong>
+              <code>${htmlEscape(f.file || "")}:${htmlEscape(f.line || "")}</code>
+              <p>${htmlEscape(f.message || "")}</p>
+            </article>
+          `).join("");
+          const html = `<!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Merge Senpai Review PR #${htmlEscape(process.env.PR_NUMBER)}</title>
+            <style>
+              body{margin:0;background:#101012;color:#f7f2ea;font:16px/1.5 ui-sans-serif,system-ui;padding:32px}
+              main{max-width:900px;margin:auto;border:1px solid #343238;border-radius:8px;background:#19191d;overflow:hidden}
+              header{display:flex;gap:18px;align-items:center;padding:22px;border-bottom:1px solid #343238}
+              img{width:72px;height:72px;border-radius:6px;background:#fff}
+              h1{margin:0;font-size:28px} p{color:#c8c0b8} section{padding:22px}
+              article{border-top:1px solid #343238;padding:16px 0} code{display:block;color:#f3c969;margin-top:4px}
+            </style>
+          </head>
+          <body>
+            <main>
+              <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai: ${htmlEscape(review.grade || "?")}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
+              <section><h2>${htmlEscape(review.verdict || "comment")}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings.</p>"}</section>
+            </main>
+          </body>
+          </html>`;
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/senpai-report.html`, html);
+          NODE
+
+          gh pr review "$PR_NUMBER" --comment --body-file "$RUNNER_TEMP/senpai-review.md" \
+            || gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-review.md" \
+            || true
+
+      - name: Upload branded review card
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-senpai-pr-${{ env.PR_NUMBER }}
+          path: ${{ runner.temp }}/senpai-report.html
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish to senpai-media branch
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! grep -Eq '^  publish_media_branch:[[:space:]]*true|^publish_media_branch:[[:space:]]*true' "$RUNNER_TEMP/base-senpai.yml"; then
+            exit 0
+          fi
+          branch="$(sed -n -E 's/^  storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p; s/^storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
+          branch="${branch:-senpai-media}"
+          tmp="$(mktemp -d)"
+          git worktree add --detach "$tmp" HEAD
+          (
+            cd "$tmp"
+            git config user.name "Merge Senpai"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+              git fetch origin "$branch"
+              git checkout "$branch"
+            else
+              git switch --orphan "$branch"
+              git rm -rf . >/dev/null 2>&1 || true
+            fi
+            mkdir -p "pr-$PR_NUMBER"
+            cp "$RUNNER_TEMP/senpai-report.html" "pr-$PR_NUMBER/$HEAD_SHA.html"
+            cp "$GITHUB_WORKSPACE/.github/merge-senpai/player.html" "player.html" 2>/dev/null || true
+            cp "$GITHUB_WORKSPACE/.github/merge-senpai/avatar.png" "avatar.png" 2>/dev/null || true
+            git add .
+            git commit -m "Store Merge Senpai report for PR #$PR_NUMBER" || exit 0
+            git push origin "HEAD:$branch"
+          )
+          git worktree remove "$tmp" --force
