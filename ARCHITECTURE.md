@@ -46,12 +46,19 @@ This is the right 80/20 because it is operationally useful even without media:
 review, gate, fix, and re-review work in public and private repos. The media
 rail is a demo accelerator, not the dependency that makes the product work.
 
-The optional "premium visual narrative" is OpenAI Images, not Higgsfield:
-Codex writes a safe `image_prompt` in the same review JSON, then a script calls
-OpenAI's Image API with the same `MERGE_SENPAI_OPENAI_KEY` to create one
-non-code narrative still. `ffmpeg` then composites that still with the same
-Supertonic audio. This should be off by default for cost, latency, org
-verification, and privacy reasons.
+2026-07-08 update: the optional "premium visual narrative" can also be a
+Higgsfield two-step media pipeline. Codex writes safe media prompts in the same
+review JSON, then a best-effort workflow step calls Higgsfield Soul
+text-to-image and Higgsfield DoP image-to-video with repository-owned
+`HIGGS_KEY_ID` and `HIGGS_API_SECRET`. The generated keyframe and MP4 are
+committed to `senpai-media` and linked from the PR review. This stays opt-in for
+templates because it adds cost, latency, and a second vendor.
+
+Higgsfield integration must use the Cloud API contract, not the local CLI. The
+CLI is useful for discovery, but its `job_set_type` names and interactive auth
+flow are not the CI contract. Store the API endpoint strings in
+`media.higgsfield_image_endpoint` and `media.higgsfield_video_endpoint`, and
+validate them with a smoke run.
 
 The important correction from the prior document: do not make audio-only the
 headline. The public demo should show a playable video briefing. For private
@@ -687,6 +694,7 @@ What we can honestly say:
 - "State lives in your repo, PR, workflow run, or artifact storage."
 - "OpenAI receives the prompt/repo context needed by Codex on your key."
 - "OpenAI Images is optional and off by default for private repos."
+- "Higgsfield video is optional and off by default for template installs."
 - "Supertonic and ffmpeg run locally in CI."
 
 What we must not say:
@@ -704,6 +712,8 @@ Hard requirements:
 - Maintainer/collaborator author-association gate for fix commands.
 - API key scoped to the specific step/process that needs it.
 - No dynamic user-attachment uploads.
+- Generated media that must persist as git history goes to `senpai-media`, not
+  GitHub comment attachments.
 - No telemetry in the player.
 - No public media publishing for private repos.
 

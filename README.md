@@ -11,6 +11,7 @@ app writes the static setup files into each installed repository:
 - `.github/senpai.yml`
 - `.github/merge-senpai/avatar.png`
 - `.github/merge-senpai/player.html`
+- `.github/merge-senpai/generate-higgsfield-video.mjs`
 
 Then add the OpenAI key used only for this reviewer to each repository:
 
@@ -33,6 +34,7 @@ repository.
 - Runs Codex in GitHub Actions with your `MERGE_SENPAI_OPENAI_KEY`.
 - Posts a branded, nonblocking PR review as `github-actions[bot]`.
 - Uploads a branded HTML review card as a workflow artifact.
+- Can optionally generate a Higgsfield keyframe and animated PR recap.
 - Responds to write/admin-class maintainer comments that mention `senpai`.
 - Keeps fork PRs safe by skipping secret-backed review instead of exposing your key.
 
@@ -71,10 +73,47 @@ Only commenters with write/admin-class access to the repository can dispatch a r
 
 The installed config publishes static review cards to `senpai-media` so demos
 have an obvious artifact trail. Each run updates the branch with a README,
-`index.html`, the latest report, avatar, and player assets.
+`index.html`, the latest report, avatar, and player assets. If Higgsfield media
+is enabled and succeeds, the generated keyframe image and MP4 are committed to
+the same branch and linked from the PR review.
 
 Set `media.publish_media_branch: false` in `.github/senpai.yml` if you do not
 want Merge Senpai to maintain that branch.
+
+## Optional Higgsfield Media
+
+Higgsfield media is opt-in per repository. Add these repository secrets in the
+installed repository:
+
+```bash
+gh secret set HIGGS_KEY_ID
+gh secret set HIGGS_API_SECRET
+```
+
+Then set `media.higgsfield_video: true` in `.github/senpai.yml`. Merge Senpai
+asks Codex for sanitized media prompts, calls Higgsfield Soul text-to-image to
+create a keyframe, calls Higgsfield DoP image-to-video with that keyframe, and
+commits the resulting assets to `senpai-media`.
+
+The default endpoints match Higgsfield's Cloud API guide examples:
+
+- `media.higgsfield_image_endpoint: higgsfield-ai/soul/standard`
+- `media.higgsfield_video_endpoint: higgsfield-ai/dop/standard`
+
+The workflow intentionally uses the API/key-secret path, not the local
+Higgsfield CLI. The CLI is useful for model discovery, but it uses interactive
+`higgsfield auth login` and exposes `job_set_type` names that are not guaranteed
+to be identical to Cloud API endpoint strings.
+
+Template installs keep this off by default. Public demo repos can enable it;
+private repos must also set `media.higgsfield_private: true` before any
+Higgsfield prompt is sent.
+
+Merge Senpai does not upload dynamic GitHub comment attachments. GitHub supports
+human drag-and-drop attachments in the browser, but the documented PR/comment
+APIs do not provide a stable bot file-upload endpoint. Committed `senpai-media`
+media files are real git objects; comment attachments are GitHub-hosted assets,
+not git history.
 
 ## GitHub App
 
@@ -121,4 +160,5 @@ files under `templates/` directly:
 templates/.github/workflows/merge-senpai.yml
 templates/.github/senpai.yml
 templates/.github/merge-senpai/player.html
+templates/.github/merge-senpai/generate-higgsfield-video.mjs
 ```
