@@ -93,9 +93,29 @@ jobs:
         run: |
           set -euo pipefail
 
+          PRIVATE_KEY_PKCS8="$(
+            node <<'NODE'
+          const crypto = require("node:crypto");
+
+          const privateKey = String(process.env.PRIVATE_KEY || "").replace(/\\n/g, "\n").trim();
+          if (!privateKey) {
+            console.error("MERGE_SENPAI_APP_PRIVATE_KEY is empty.");
+            process.exit(1);
+          }
+
+          try {
+            const keyObject = crypto.createPrivateKey(privateKey);
+            process.stdout.write(keyObject.export({ type: "pkcs8", format: "pem" }));
+          } catch (error) {
+            console.error(`Could not convert MERGE_SENPAI_APP_PRIVATE_KEY to PKCS#8: ${error.message}`);
+            process.exit(1);
+          }
+          NODE
+          )"
+
           printf '%s' "$APP_ID" \
             | npx wrangler secret put APP_ID --name "$WORKER_NAME" --config wrangler.toml
-          printf '%s' "$PRIVATE_KEY" \
+          printf '%s' "$PRIVATE_KEY_PKCS8" \
             | npx wrangler secret put PRIVATE_KEY --name "$WORKER_NAME" --config wrangler.toml
           printf '%s' "$WEBHOOK_SECRET" \
             | npx wrangler secret put WEBHOOK_SECRET --name "$WORKER_NAME" --config wrangler.toml

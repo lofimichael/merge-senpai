@@ -73,6 +73,12 @@ The workflow syncs those values into Cloudflare Worker secrets:
 - `PRIVATE_KEY`
 - `WEBHOOK_SECRET`
 
+GitHub downloads app private keys as PKCS#1 PEM files
+(`-----BEGIN RSA PRIVATE KEY-----`). Cloudflare Workers use WebCrypto, which
+requires PKCS#8 for GitHub App JWT signing. The deploy workflow converts
+`MERGE_SENPAI_APP_PRIVATE_KEY` to PKCS#8 before writing the Worker `PRIVATE_KEY`
+secret, so keep the original GitHub-downloaded PEM in the repository secret.
+
 Setup files are fetched from `SENPAI_TEMPLATE_BASE_URL`, which defaults to this
 repository's raw `main` branch. For branch testing before merge, override that
 Worker variable to a raw URL for the branch or commit being tested.
