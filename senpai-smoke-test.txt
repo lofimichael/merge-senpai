@@ -1,0 +1,4 @@
+Merge Senpai smoke test.
+
+This file exists only to open a small same-repository pull request that should
+trigger the GitHub App dispatcher and the installed Merge Senpai workflow.
