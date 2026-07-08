@@ -101,10 +101,16 @@ DoP image-to-video with `dop-standard` and prompt enhancement.
 
 - `media.higgsfield_image_endpoint: /v1/text2image/soul`
 - `media.higgsfield_video_endpoint: /v1/image2video/dop`
+- `media.higgsfield_fallback_image_endpoint: higgsfield-ai/soul/standard`
+- `media.higgsfield_fallback_video_endpoint: higgsfield-ai/dop/standard`
 - `media.higgsfield_image_quality: 1080p`
 - `media.higgsfield_image_size: 1152x2048`
 - `media.higgsfield_video_model: dop-standard`
 - `media.higgsfield_enhance_prompt: true`
+
+The fallback endpoints are the Cloud API guide examples. They keep media
+generation working if the richer `/v1` request shape is rejected by an account
+or model rollout.
 
 Higgsfield is best-effort. If media generation, media artifact upload, or
 `senpai-media` publishing fails, Merge Senpai still posts the review and uploads

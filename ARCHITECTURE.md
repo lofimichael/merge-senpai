@@ -56,6 +56,12 @@ artifact. The generated keyframe and MP4 are optional: if generation and
 with the video, player, and keyframe links. This stays opt-in for templates
 because it adds cost, latency, and a second vendor.
 
+The preferred media profile uses the richer `/v1/text2image/soul` and
+`/v1/image2video/dop` request shapes. The helper falls back to the Cloud guide
+endpoints (`higgsfield-ai/soul/standard` and `higgsfield-ai/dop/standard`) if
+the richer shape is rejected, so media quality can improve without making video
+generation brittle.
+
 Higgsfield integration must use the Cloud API contract, not the local CLI. The
 CLI is useful for discovery, but its `job_set_type` names and interactive auth
 flow are not the CI contract. Store the API endpoint strings in

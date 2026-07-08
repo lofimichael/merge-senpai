@@ -271,6 +271,8 @@ jobs:
           fi
           set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_ENDPOINT higgsfield_image_endpoint
           set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_ENDPOINT higgsfield_video_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT higgsfield_fallback_image_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT higgsfield_fallback_video_endpoint
           set_higgsfield_env SENPAI_HIGGSFIELD_DURATION higgsfield_duration
           set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_RESOLUTION higgsfield_image_resolution
           set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_QUALITY higgsfield_image_quality

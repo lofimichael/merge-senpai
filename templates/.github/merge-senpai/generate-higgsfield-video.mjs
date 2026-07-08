@@ -107,6 +107,20 @@ function endpointFor(endpoint) {
   return `${baseUrl}/${clean}`;
 }
 
+function sameEndpoint(a, b) {
+  return endpointKey(a) === endpointKey(b);
+}
+
+function errorDetail(data, fallback) {
+  const detail = data?.detail || data?.message || data?.raw || fallback;
+  if (typeof detail === "string") return detail;
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return String(detail);
+  }
+}
+
 function buildImageRequest(review, endpoint) {
   const aspectRatio = getEnv("SENPAI_HIGGSFIELD_ASPECT_RATIO", "9:16");
   const resolution = getEnv("SENPAI_HIGGSFIELD_IMAGE_RESOLUTION", "1080p");
@@ -193,8 +207,7 @@ async function apiFetch(url, options = {}) {
   }
 
   if (!response.ok) {
-    const detail = data?.detail || data?.message || data?.raw || response.statusText;
-    throw new Error(`Higgsfield request failed (${response.status}): ${detail}`);
+    throw new Error(`Higgsfield request failed (${response.status}): ${errorDetail(data, response.statusText)}`);
   }
 
   return data || {};
@@ -279,6 +292,44 @@ async function downloadFile(url, targetPath, fallbackExtension) {
   return { bytes: bytes.length, path: finalPath, contentType };
 }
 
+async function generateImage({ endpoint, request, authHeader, maxPollMs, pollIntervalMs }) {
+  const submitted = await apiFetch(endpointFor(endpoint), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs);
+  assertCompleted(completed, "text-to-image");
+  const url = findImageUrl(completed) || findImageUrl(submitted);
+  if (!url) {
+    throw new Error("Higgsfield text-to-image completed without an image URL.");
+  }
+  return { submitted, completed, url };
+}
+
+async function generateVideo({ endpoint, request, authHeader, maxPollMs, pollIntervalMs }) {
+  const submitted = await apiFetch(endpointFor(endpoint), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs);
+  const status = assertCompleted(completed, "image-to-video");
+  const url = findVideoUrl(completed) || findVideoUrl(submitted);
+  if (!url) {
+    throw new Error("Higgsfield image-to-video completed without a video URL.");
+  }
+  return { submitted, completed, status, url };
+}
+
 async function main() {
   setOutput("generated", "false");
 
@@ -286,6 +337,8 @@ async function main() {
   const apiSecret = getEnv("HIGGS_API_SECRET");
   const imageEndpoint = getEnv("SENPAI_HIGGSFIELD_IMAGE_ENDPOINT", "/v1/text2image/soul");
   const videoEndpoint = getEnv("SENPAI_HIGGSFIELD_VIDEO_ENDPOINT", "/v1/image2video/dop");
+  const fallbackImageEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT", "higgsfield-ai/soul/standard");
+  const fallbackVideoEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT", "higgsfield-ai/dop/standard");
   if (!keyId || !apiSecret) {
     warning("Higgsfield video skipped because HIGGS_KEY_ID or HIGGS_API_SECRET is missing.");
     return;
@@ -306,6 +359,8 @@ async function main() {
   fs.writeFileSync(requestPath, `${JSON.stringify({
     image_endpoint: imageEndpoint,
     video_endpoint: videoEndpoint,
+    fallback_image_endpoint: fallbackImageEndpoint,
+    fallback_video_endpoint: fallbackVideoEndpoint,
     image_request: imageRequest,
     video_request: redactedVideoRequest(videoRequest, videoEndpoint),
   }, null, 2)}\n`);
@@ -325,50 +380,71 @@ async function main() {
   const maxPollMs = Number(getEnv("SENPAI_HIGGSFIELD_MAX_POLL_MS", "360000"));
   const pollIntervalMs = Number(getEnv("SENPAI_HIGGSFIELD_POLL_INTERVAL_MS", "5000"));
 
-  const imageSubmitted = await apiFetch(endpointFor(imageEndpoint), {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(imageRequest),
-  });
-  const imageCompleted = await pollStatus(imageSubmitted, authHeader, maxPollMs, pollIntervalMs);
-  assertCompleted(imageCompleted, "text-to-image");
-  const imageUrl = findImageUrl(imageCompleted) || findImageUrl(imageSubmitted);
-  if (!imageUrl) {
-    throw new Error("Higgsfield text-to-image completed without an image URL.");
+  let activeImageEndpoint = imageEndpoint;
+  let activeImageRequest = imageRequest;
+  let imageResult;
+  try {
+    imageResult = await generateImage({
+      endpoint: activeImageEndpoint,
+      request: activeImageRequest,
+      authHeader,
+      maxPollMs,
+      pollIntervalMs,
+    });
+  } catch (error) {
+    if (!fallbackImageEndpoint || sameEndpoint(fallbackImageEndpoint, activeImageEndpoint)) throw error;
+    warning(`Primary Higgsfield image endpoint failed; trying fallback ${fallbackImageEndpoint}: ${error?.message || error}`);
+    activeImageEndpoint = fallbackImageEndpoint;
+    activeImageRequest = buildImageRequest(review, activeImageEndpoint);
+    imageResult = await generateImage({
+      endpoint: activeImageEndpoint,
+      request: activeImageRequest,
+      authHeader,
+      maxPollMs,
+      pollIntervalMs,
+    });
   }
 
-  const imageDownload = await downloadFile(imageUrl, imageOutputBase, "png");
-  attachImageToVideoRequest(videoRequest, videoEndpoint, imageUrl);
+  const imageDownload = await downloadFile(imageResult.url, imageOutputBase, "png");
+  let activeVideoEndpoint = videoEndpoint;
+  let activeVideoRequest = videoRequest;
+  attachImageToVideoRequest(activeVideoRequest, activeVideoEndpoint, imageResult.url);
 
-  const videoSubmitted = await apiFetch(endpointFor(videoEndpoint), {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(videoRequest),
-  });
-  const videoCompleted = await pollStatus(videoSubmitted, authHeader, maxPollMs, pollIntervalMs);
-  const videoStatus = assertCompleted(videoCompleted, "image-to-video");
-  const videoUrl = findVideoUrl(videoCompleted) || findVideoUrl(videoSubmitted);
-  if (!videoUrl) {
-    throw new Error("Higgsfield image-to-video completed without a video URL.");
+  let videoResult;
+  try {
+    videoResult = await generateVideo({
+      endpoint: activeVideoEndpoint,
+      request: activeVideoRequest,
+      authHeader,
+      maxPollMs,
+      pollIntervalMs,
+    });
+  } catch (error) {
+    if (!fallbackVideoEndpoint || sameEndpoint(fallbackVideoEndpoint, activeVideoEndpoint)) throw error;
+    warning(`Primary Higgsfield video endpoint failed; trying fallback ${fallbackVideoEndpoint}: ${error?.message || error}`);
+    activeVideoEndpoint = fallbackVideoEndpoint;
+    activeVideoRequest = buildVideoRequest(review, activeVideoEndpoint);
+    attachImageToVideoRequest(activeVideoRequest, activeVideoEndpoint, imageResult.url);
+    videoResult = await generateVideo({
+      endpoint: activeVideoEndpoint,
+      request: activeVideoRequest,
+      authHeader,
+      maxPollMs,
+      pollIntervalMs,
+    });
   }
 
-  const videoDownload = await downloadFile(videoUrl, videoOutputPath.replace(/\.mp4$/, ""), "mp4");
+  const videoDownload = await downloadFile(videoResult.url, videoOutputPath.replace(/\.mp4$/, ""), "mp4");
   fs.writeFileSync(metadataPath, `${JSON.stringify({
-    image_endpoint: imageEndpoint,
-    video_endpoint: videoEndpoint,
-    image_request_id: imageCompleted.request_id || imageSubmitted.request_id || "",
-    video_request_id: videoCompleted.request_id || videoSubmitted.request_id || "",
-    status: videoStatus,
-    source_image_url: imageUrl,
-    source_video_url: videoUrl,
+    image_endpoint: activeImageEndpoint,
+    video_endpoint: activeVideoEndpoint,
+    image_request: activeImageRequest,
+    video_request: redactedVideoRequest(activeVideoRequest, activeVideoEndpoint),
+    image_request_id: imageResult.completed.request_id || imageResult.submitted.request_id || "",
+    video_request_id: videoResult.completed.request_id || videoResult.submitted.request_id || "",
+    status: videoResult.status,
+    source_image_url: imageResult.url,
+    source_video_url: videoResult.url,
     image_output_path: imageDownload.path,
     video_output_path: videoDownload.path,
     image_bytes: imageDownload.bytes,
