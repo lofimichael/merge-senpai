@@ -4,6 +4,19 @@ Last updated: 2026-07-08
 
 ## 0. Executive Decision
 
+2026-07-08 update: the hackathon install path is now a BYOK workflow installer,
+not a GitHub App. The GitHub App architecture remains a reasonable future path
+for first-class bot identity, but the current 80/20 is a single transparent
+workflow copied into the user's repository by `install.sh`. This preserves the
+"no Merge Senpai server sees your code" story, keeps all OpenAI usage on the
+repository owner's key, and makes the install PR itself reviewable.
+
+The workflow-mode tradeoff is identity: reviews and comments are authored by
+`github-actions[bot]`. Merge Senpai branding lives in the workflow name, check
+name, review body, fix commit author, labels, artifacts, media branch, and
+installed avatar. A real `merge-senpai[bot]` identity still requires a GitHub
+App or an optional machine-user token.
+
 Merge Senpai should ship as a zero-server GitHub Action that uses a dedicated
 OpenAI API key supplied by the installing repository. The minimum impressive
 hackathon vehicle is:
