@@ -9,6 +9,14 @@ const SETUP_FILES = [
   ".github/merge-senpai/player.html",
 ];
 
+class ConfigurationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "ConfigurationError";
+    this.code = code;
+  }
+}
+
 function envFlag(env, name, defaultValue = false) {
   const value = env[name];
   if (value == null || value === "") return defaultValue;
@@ -34,6 +42,30 @@ function parseReviewCommand(body) {
 
 function normalizePrivateKey(value) {
   return String(value || "").replace(/\\n/g, "\n");
+}
+
+function sanitizeErrorMessage(error) {
+  return String(error?.message || "unknown_error")
+    .replace(/[A-Za-z0-9+/=]{80,}/g, "[redacted]")
+    .slice(0, 300);
+}
+
+function resolveGitHubAppConfig(env, installation) {
+  const appId = installation?.app_id || env.APP_ID;
+  const privateKey = normalizePrivateKey(env.PRIVATE_KEY).trim();
+  const missing = [];
+
+  if (!appId) missing.push("APP_ID");
+  if (!privateKey) missing.push("PRIVATE_KEY");
+
+  if (missing.length) {
+    throw new ConfigurationError(
+      "missing_github_app_config",
+      `Missing GitHub App Worker secret(s): ${missing.join(", ")}`,
+    );
+  }
+
+  return { appId, privateKey };
 }
 
 function base64FromBytes(bytes) {
@@ -79,20 +111,30 @@ async function verifyGitHubSignature(request, env, body) {
   return timingSafeEqual(hexToBytes(signature.slice("sha256=".length)), new Uint8Array(digest));
 }
 
-async function createInstallationToken(env, installationId) {
+async function createInstallationToken(env, installation) {
+  const installationId = typeof installation === "object" ? installation?.id : installation;
   if (!installationId) {
     throw new Error("Missing GitHub App installation id in webhook payload.");
   }
 
+  const { appId, privateKey } = resolveGitHubAppConfig(env, installation);
   const auth = createAppAuth({
-    appId: env.APP_ID,
-    privateKey: normalizePrivateKey(env.PRIVATE_KEY),
+    appId,
+    privateKey,
   });
 
-  const installationAuthentication = await auth({
-    type: "installation",
-    installationId,
-  });
+  let installationAuthentication;
+  try {
+    installationAuthentication = await auth({
+      type: "installation",
+      installationId,
+    });
+  } catch (error) {
+    throw new ConfigurationError(
+      "github_app_auth_failed",
+      `GitHub App authentication failed: ${sanitizeErrorMessage(error)}. Verify PRIVATE_KEY belongs to this GitHub App.`,
+    );
+  }
 
   return installationAuthentication.token;
 }
@@ -303,7 +345,7 @@ async function handleIssueComment(env, payload) {
   const command = parseReviewCommand(comment.body);
   if (!command) return { ignored: "not_senpai_command" };
 
-  const token = await createInstallationToken(env, payload.installation?.id);
+  const token = await createInstallationToken(env, payload.installation);
   if (!(await canDispatchForComment(token, payload))) {
     console.info("Ignored unauthorized Merge Senpai command", {
       repository: repository.full_name,
@@ -324,7 +366,7 @@ async function handlePullRequest(env, payload) {
   const { repository, pull_request: pullRequest } = payload;
   if (pullRequest.draft) return { ignored: "draft_pull_request" };
 
-  const token = await createInstallationToken(env, payload.installation?.id);
+  const token = await createInstallationToken(env, payload.installation);
   await ensureRepositorySetup(env, token, repository);
   await dispatchReview(env, payload, token, pullRequest.number, `pull_request:${payload.action}`);
   return { dispatched: true };
@@ -333,7 +375,7 @@ async function handlePullRequest(env, payload) {
 async function handleInstallation(env, payload) {
   if (payload.action !== "created") return { ignored: "unsupported_installation_action" };
 
-  const token = await createInstallationToken(env, payload.installation?.id);
+  const token = await createInstallationToken(env, payload.installation);
   const repositories = payload.repositories || [];
   const results = [];
 
@@ -350,7 +392,7 @@ async function handleInstallation(env, payload) {
 async function handleInstallationRepositories(env, payload) {
   if (payload.action !== "added") return { ignored: "unsupported_installation_repositories_action" };
 
-  const token = await createInstallationToken(env, payload.installation?.id);
+  const token = await createInstallationToken(env, payload.installation);
   const repositories = payload.repositories_added || [];
   const results = [];
 
@@ -404,7 +446,16 @@ export default {
       return await handleGitHubWebhook(request, env);
     } catch (error) {
       console.error(error);
+      if (error instanceof ConfigurationError) {
+        return Response.json({ error: error.code, message: error.message }, { status: 500 });
+      }
       return Response.json({ error: "internal_error" }, { status: 500 });
     }
   },
+};
+
+export {
+  normalizePrivateKey,
+  parseReviewCommand,
+  resolveGitHubAppConfig,
 };

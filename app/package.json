@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node --check src/worker.js"
+    "check": "node --check src/worker.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@octokit/auth-app": "^8.2.0"
