@@ -252,9 +252,20 @@ jobs:
               .replace(/"/g, "&quot;");
           }
 
+          const verdict = mdEscape(review.verdict || "comment");
+          const grade = mdEscape(review.grade || "?");
+          const verdictLabels = {
+            clean: "Clean",
+            comment: "Review notes",
+            request_changes: "Changes requested"
+          };
+          const verdictLabel = verdictLabels[verdict] || "Review";
+          const reviewTitle = `${verdictLabel} (${grade})`;
+
           let body = `${marker}\n<img src="${avatarUrl}" width="72" align="right" alt="Merge Senpai" />\n\n`;
-          body += `# Merge Senpai says: ${mdEscape(review.grade || "?")}\n\n`;
-          body += `**Verdict:** \`${mdEscape(review.verdict || "comment")}\`  \n`;
+          body += `# Merge Senpai Review: ${reviewTitle}\n\n`;
+          body += `**Grade:** ${grade}  \n`;
+          body += `**Verdict:** \`${verdict}\`  \n`;
           body += `**Findings:** ${findings.length} total, ${blockers} blocking-class\n\n`;
           body += `> ${mdEscape(review.persona_line || "I reviewed it because somebody had to.")}\n\n`;
           body += `${mdEscape(review.summary || "No summary returned.")}\n\n`;
@@ -278,7 +289,7 @@ jobs:
               console.log(`::${level} ${props}::${cmdEscape(finding.message || title)}`);
             }
           } else {
-            body += `No material findings. Don't get smug.\n\n`;
+            body += `No material findings. Keep shipping carefully.\n\n`;
           }
 
           body += `---\n`;
@@ -313,8 +324,8 @@ jobs:
           </head>
           <body>
             <main>
-              <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai: ${htmlEscape(review.grade || "?")}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
-              <section><h2>${htmlEscape(review.verdict || "comment")}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings.</p>"}</section>
+              <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai Review: ${htmlEscape(reviewTitle)}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
+              <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings. Keep shipping carefully.</p>"}</section>
             </main>
           </body>
           </html>`;
@@ -360,9 +371,70 @@ jobs:
               git rm -rf . >/dev/null 2>&1 || true
             fi
             mkdir -p "pr-$PR_NUMBER"
-            cp "$RUNNER_TEMP/senpai-report.html" "pr-$PR_NUMBER/$HEAD_SHA.html"
+            report_path="pr-$PR_NUMBER/$HEAD_SHA.html"
+            cp "$RUNNER_TEMP/senpai-report.html" "$report_path"
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/player.html" "player.html" 2>/dev/null || true
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/avatar.png" "avatar.png" 2>/dev/null || true
+            published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            cat > README.md <<EOF
+          # Merge Senpai Media
+          
+          Static review-card storage for Merge Senpai.
+          
+          - Latest report: [PR #$PR_NUMBER at $HEAD_SHA]($report_path)
+          - Source PR: https://github.com/${GITHUB_REPOSITORY}/pull/$PR_NUMBER
+          - Published: $published_at
+          
+          This branch is intentionally a tiny media shelf. CI writes static review cards
+          here so Merge Senpai can demo durable artifacts without running a database,
+          bucket, or asset server.
+          
+          Presentation note: this is a GitHub-flavored nod to the Infinite Storage Glitch
+          idea of using an unexpected host as storage:
+          https://github.com/KKarmugil/Infinite_Storage_Glitch
+          EOF
+            cat > index.html <<EOF
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>Merge Senpai Media</title>
+            <style>
+              body{margin:0;background:#101012;color:#f7f2ea;font:16px/1.5 ui-sans-serif,system-ui;padding:32px}
+              main{max-width:880px;margin:auto}
+              img{width:64px;height:64px;border-radius:6px;background:#fff}
+              header{display:flex;gap:16px;align-items:center;margin-bottom:28px}
+              h1{margin:0;font-size:30px}
+              p{color:#c8c0b8}
+              a{color:#f3c969}
+              .panel{border:1px solid #343238;border-radius:8px;background:#19191d;padding:20px;margin:16px 0}
+              code{color:#ff9aa7}
+            </style>
+          </head>
+          <body>
+            <main>
+              <header>
+                <img src="./avatar.png" alt="Merge Senpai">
+                <div>
+                  <h1>Merge Senpai Media</h1>
+                  <p>Static review cards stored on the <code>senpai-media</code> branch.</p>
+                </div>
+              </header>
+              <section class="panel">
+                <h2>Latest Review Card</h2>
+                <p><a href="./$report_path">Open PR #$PR_NUMBER report for $HEAD_SHA</a></p>
+                <p><a href="https://github.com/${GITHUB_REPOSITORY}/pull/$PR_NUMBER">Open the pull request</a></p>
+              </section>
+              <section class="panel">
+                <h2>Presentation Hook</h2>
+                <p>Inspired by the playful Infinite Storage Glitch idea: if video can be storage, a Git branch can be a tiny review-card shelf.</p>
+                <p><a href="https://github.com/KKarmugil/Infinite_Storage_Glitch">Infinite Storage Glitch reference</a></p>
+              </section>
+            </main>
+          </body>
+          </html>
+          EOF
             git add .
             git commit -m "Store Merge Senpai report for PR #$PR_NUMBER" || exit 0
             git push origin "HEAD:$branch"

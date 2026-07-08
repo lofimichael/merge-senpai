@@ -69,8 +69,12 @@ Only commenters with write/admin-class access to the repository can dispatch a r
 
 ## Optional Media Branch
 
-The installed config includes a `senpai-media` storage branch setting for future
-public demo artifacts. It is disabled by default.
+The installed config publishes static review cards to `senpai-media` so demos
+have an obvious artifact trail. Each run updates the branch with a README,
+`index.html`, the latest report, avatar, and player assets.
+
+Set `media.publish_media_branch: false` in `.github/senpai.yml` if you do not
+want Merge Senpai to maintain that branch.
 
 ## GitHub App
 
