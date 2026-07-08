@@ -2,9 +2,9 @@
 
 Static review-card storage for Merge Senpai.
 
-- Latest report: [PR #6 at 77bcc9203ae53455ed3961ce1f6fcc76b215a7ff](pr-6/77bcc9203ae53455ed3961ce1f6fcc76b215a7ff.html)
-- Source PR: https://github.com/lofimichael/merge-senpai/pull/6
-- Published: 2026-07-08T22:27:03Z
+- Latest report: [PR #9 at 2e30d127d6c1eb50c40ee7fb1c3312544cf43899](pr-9/2e30d127d6c1eb50c40ee7fb1c3312544cf43899.html)
+- Source PR: https://github.com/lofimichael/merge-senpai/pull/9
+- Published: 2026-07-08T22:54:18Z
 
 This branch is intentionally a tiny media shelf. CI writes static review cards
 here so Merge Senpai can demo durable artifacts without running a database,
