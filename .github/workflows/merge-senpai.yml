@@ -186,6 +186,7 @@ jobs:
           output-file: ${{ runner.temp }}/senpai-review.json
           sandbox: read-only
           codex-args: '["--ephemeral", "--output-schema", "${{ runner.temp }}/senpai.schema.json"]'
+          allow-bot-users: mergesenpai[bot]
 
       - name: Normalize review JSON
         if: steps.gate.outputs.enabled == 'true'
