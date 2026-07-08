@@ -335,10 +335,10 @@ async function main() {
 
   const keyId = getEnv("HIGGS_KEY_ID");
   const apiSecret = getEnv("HIGGS_API_SECRET");
-  const imageEndpoint = getEnv("SENPAI_HIGGSFIELD_IMAGE_ENDPOINT", "/v1/text2image/soul");
-  const videoEndpoint = getEnv("SENPAI_HIGGSFIELD_VIDEO_ENDPOINT", "/v1/image2video/dop");
-  const fallbackImageEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT", "higgsfield-ai/soul/standard");
-  const fallbackVideoEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT", "higgsfield-ai/dop/standard");
+  const imageEndpoint = getEnv("SENPAI_HIGGSFIELD_IMAGE_ENDPOINT", "higgsfield-ai/soul/standard");
+  const videoEndpoint = getEnv("SENPAI_HIGGSFIELD_VIDEO_ENDPOINT", "higgsfield-ai/dop/standard");
+  const fallbackImageEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT", "/v1/text2image/soul");
+  const fallbackVideoEndpoint = getEnv("SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT", "/v1/image2video/dop");
   if (!keyId || !apiSecret) {
     warning("Higgsfield video skipped because HIGGS_KEY_ID or HIGGS_API_SECRET is missing.");
     return;

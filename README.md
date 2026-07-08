@@ -95,22 +95,23 @@ asks Codex for sanitized media prompts, calls Higgsfield Soul text-to-image to
 create a keyframe, calls Higgsfield DoP image-to-video with that keyframe, and
 commits the resulting assets to `senpai-media`.
 
-The default profile uses Higgsfield's SDK-documented high-quality request
-shape: Soul text-to-image at 1080p with a 1152x2048 portrait source image, then
-DoP image-to-video with `dop-standard` and prompt enhancement.
+The default profile uses Higgsfield's Cloud guide endpoints with a 1080p Soul
+keyframe, then DoP Standard image-to-video. The richer `/v1` SDK-shaped routes
+are kept as fallbacks because some accounts or model rollouts reject that request
+shape.
 
-- `media.higgsfield_image_endpoint: /v1/text2image/soul`
-- `media.higgsfield_video_endpoint: /v1/image2video/dop`
-- `media.higgsfield_fallback_image_endpoint: higgsfield-ai/soul/standard`
-- `media.higgsfield_fallback_video_endpoint: higgsfield-ai/dop/standard`
+- `media.higgsfield_image_endpoint: higgsfield-ai/soul/standard`
+- `media.higgsfield_video_endpoint: higgsfield-ai/dop/standard`
+- `media.higgsfield_fallback_image_endpoint: /v1/text2image/soul`
+- `media.higgsfield_fallback_video_endpoint: /v1/image2video/dop`
 - `media.higgsfield_image_quality: 1080p`
 - `media.higgsfield_image_size: 1152x2048`
 - `media.higgsfield_video_model: dop-standard`
 - `media.higgsfield_enhance_prompt: true`
 
-The fallback endpoints are the Cloud API guide examples. They keep media
-generation working if the richer `/v1` request shape is rejected by an account
-or model rollout.
+The review and HTML card are posted before Higgsfield runs. Higgsfield media is
+generated afterward and only adds a separate PR comment if the MP4/keyframe are
+successfully committed to `senpai-media`.
 
 Higgsfield is best-effort. If media generation, media artifact upload, or
 `senpai-media` publishing fails, Merge Senpai still posts the review and uploads
