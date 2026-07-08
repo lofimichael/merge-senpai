@@ -23,9 +23,14 @@ media:
   publish_media_branch: true
   storage_branch: senpai-media
   higgsfield_video: false
-  higgsfield_image_endpoint: higgsfield-ai/soul/standard
-  higgsfield_video_endpoint: higgsfield-ai/dop/standard
+  higgsfield_image_endpoint: /v1/text2image/soul
+  higgsfield_video_endpoint: /v1/image2video/dop
   higgsfield_duration: 5
-  higgsfield_image_resolution: 720p
+  higgsfield_image_resolution: 1080p
+  higgsfield_image_quality: 1080p
+  higgsfield_image_size: 1152x2048
+  higgsfield_image_batch_size: 1
+  higgsfield_video_model: dop-standard
+  higgsfield_enhance_prompt: true
   higgsfield_aspect_ratio: 9:16
   higgsfield_private: false

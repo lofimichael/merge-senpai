@@ -50,9 +50,11 @@ rail is a demo accelerator, not the dependency that makes the product work.
 Higgsfield two-step media pipeline. Codex writes safe media prompts in the same
 review JSON, then a best-effort workflow step calls Higgsfield Soul
 text-to-image and Higgsfield DoP image-to-video with repository-owned
-`HIGGS_KEY_ID` and `HIGGS_API_SECRET`. The generated keyframe and MP4 are
-committed to `senpai-media` and linked from the PR review. This stays opt-in for
-templates because it adds cost, latency, and a second vendor.
+`HIGGS_KEY_ID` and `HIGGS_API_SECRET`. The HTML review card is the guaranteed
+artifact. The generated keyframe and MP4 are optional: if generation and
+`senpai-media` publishing both succeed, Merge Senpai adds a separate PR comment
+with the video, player, and keyframe links. This stays opt-in for templates
+because it adds cost, latency, and a second vendor.
 
 Higgsfield integration must use the Cloud API contract, not the local CLI. The
 CLI is useful for discovery, but its `job_set_type` names and interactive auth

@@ -95,10 +95,22 @@ asks Codex for sanitized media prompts, calls Higgsfield Soul text-to-image to
 create a keyframe, calls Higgsfield DoP image-to-video with that keyframe, and
 commits the resulting assets to `senpai-media`.
 
-The default endpoints match Higgsfield's Cloud API guide examples:
+The default profile uses Higgsfield's SDK-documented high-quality request
+shape: Soul text-to-image at 1080p with a 1152x2048 portrait source image, then
+DoP image-to-video with `dop-standard` and prompt enhancement.
 
-- `media.higgsfield_image_endpoint: higgsfield-ai/soul/standard`
-- `media.higgsfield_video_endpoint: higgsfield-ai/dop/standard`
+- `media.higgsfield_image_endpoint: /v1/text2image/soul`
+- `media.higgsfield_video_endpoint: /v1/image2video/dop`
+- `media.higgsfield_image_quality: 1080p`
+- `media.higgsfield_image_size: 1152x2048`
+- `media.higgsfield_video_model: dop-standard`
+- `media.higgsfield_enhance_prompt: true`
+
+Higgsfield is best-effort. If media generation, media artifact upload, or
+`senpai-media` publishing fails, Merge Senpai still posts the review and uploads
+the HTML review card. When media is generated and published successfully, Merge
+Senpai adds or updates a separate PR comment with the video, player, and keyframe
+links from the `senpai-media` branch.
 
 The workflow intentionally uses the API/key-secret path, not the local
 Higgsfield CLI. The CLI is useful for model discovery, but it uses interactive

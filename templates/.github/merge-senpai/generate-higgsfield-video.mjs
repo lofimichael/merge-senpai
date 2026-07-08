@@ -29,6 +29,36 @@ function getEnv(name, fallback = "") {
   return String(process.env[name] || fallback).trim();
 }
 
+function envFlag(name, fallback = false) {
+  const value = getEnv(name);
+  if (!value) return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function numberEnv(name, fallback) {
+  const value = Number(getEnv(name, String(fallback)));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function endpointKey(endpoint) {
+  return String(endpoint || "").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function isSoulV1Endpoint(endpoint) {
+  return endpointKey(endpoint) === "v1/text2image/soul";
+}
+
+function isDopV1Endpoint(endpoint) {
+  return endpointKey(endpoint) === "v1/image2video/dop";
+}
+
+function imageSizeForAspectRatio(aspectRatio) {
+  const normalized = String(aspectRatio || "").replace(/\s/g, "");
+  if (normalized === "16:9") return "2048x1152";
+  if (normalized === "1:1") return "1536x1536";
+  return "1152x2048";
+}
+
 function sanitizePrompt(value) {
   return String(value || "")
     .replace(/```[\s\S]*?```/g, " ")
@@ -47,8 +77,9 @@ function buildImagePrompt(review) {
   const findings = Array.isArray(review.findings) ? review.findings.length : 0;
 
   return [
-    "Vertical social video keyframe for a fictional tech influencer explaining a pull request review.",
-    "Anime-inspired Merge Senpai energy, expressive presenter pose, floating CI panels, pull request timeline, bold shapes, readable mood but no actual readable text.",
+    "Premium vertical social video keyframe for a fictional tech creator explaining a pull request review.",
+    "Cinematic editorial still, realistic studio lighting, high-detail face and fabric texture, clean lens rendering, confident presenter pose, abstract CI panels, pull request timeline shapes, no readable text.",
+    "Make it feel expensive and intentional, not low-resolution, plastic, blurry, or generic AI stock art.",
     "No source code, secrets, URLs, real person likenesses, brand logos, or private identifiers.",
     `Review context: verdict ${verdict}, grade ${grade}, findings ${findings}.`,
     `Visual concept: ${source || "A tiny validation pull request gets reviewed, passes cleanly, and publishes a durable CI artifact."}`,
@@ -63,7 +94,8 @@ function buildVideoPrompt(review) {
 
   return [
     "Animate this PR recap keyframe into a short social clip.",
-    "Use quick influencer-style camera push, subtle parallax, animated CI checkmarks, kinetic interface cards, and energetic presentation motion.",
+    "Use a smooth cinematic camera push, subtle parallax, stable hands and face, animated CI checkmarks, kinetic interface cards, and energetic presentation motion.",
+    "Prioritize temporal stability, sharp subject detail, clean lighting, and minimal warping or flicker.",
     "Keep text abstract and non-readable. Do not reveal source code, secrets, URLs, real person likenesses, brand logos, or private identifiers.",
     `Verdict: ${verdict}. Grade: ${grade}. Findings: ${findings}.`,
     `Scene direction: ${source || "The reviewer celebrates a clean validation PR and points to a durable media branch artifact."}`,
@@ -73,6 +105,79 @@ function buildVideoPrompt(review) {
 function endpointFor(endpoint) {
   const clean = String(endpoint || "").replace(/^\/+/, "");
   return `${baseUrl}/${clean}`;
+}
+
+function buildImageRequest(review, endpoint) {
+  const aspectRatio = getEnv("SENPAI_HIGGSFIELD_ASPECT_RATIO", "9:16");
+  const resolution = getEnv("SENPAI_HIGGSFIELD_IMAGE_RESOLUTION", "1080p");
+  const prompt = buildImagePrompt(review);
+
+  if (isSoulV1Endpoint(endpoint)) {
+    const request = {
+      prompt,
+      width_and_height: getEnv("SENPAI_HIGGSFIELD_IMAGE_SIZE", imageSizeForAspectRatio(aspectRatio)),
+      quality: getEnv("SENPAI_HIGGSFIELD_IMAGE_QUALITY", resolution),
+      batch_size: numberEnv("SENPAI_HIGGSFIELD_IMAGE_BATCH_SIZE", 1),
+      enhance_prompt: envFlag("SENPAI_HIGGSFIELD_ENHANCE_PROMPT", true),
+    };
+    const seed = getEnv("SENPAI_HIGGSFIELD_SEED");
+    if (seed) request.seed = Number(seed);
+    return request;
+  }
+
+  return {
+    prompt,
+    aspect_ratio: aspectRatio,
+    resolution,
+  };
+}
+
+function buildVideoRequest(review, endpoint) {
+  const prompt = buildVideoPrompt(review);
+
+  if (isDopV1Endpoint(endpoint)) {
+    const request = {
+      model: getEnv("SENPAI_HIGGSFIELD_VIDEO_MODEL", "dop-standard"),
+      prompt,
+      input_images: [],
+      enhance_prompt: envFlag("SENPAI_HIGGSFIELD_ENHANCE_PROMPT", true),
+    };
+    const seed = getEnv("SENPAI_HIGGSFIELD_SEED");
+    if (seed) request.seed = Number(seed);
+    return request;
+  }
+
+  return {
+    image_url: "",
+    prompt,
+    duration: numberEnv("SENPAI_HIGGSFIELD_DURATION", 5),
+  };
+}
+
+function attachImageToVideoRequest(videoRequest, endpoint, imageUrl) {
+  if (isDopV1Endpoint(endpoint)) {
+    videoRequest.input_images = [{
+      type: "image_url",
+      image_url: imageUrl,
+    }];
+    return;
+  }
+
+  videoRequest.image_url = imageUrl;
+}
+
+function redactedVideoRequest(videoRequest, endpoint) {
+  if (isDopV1Endpoint(endpoint)) {
+    return {
+      ...videoRequest,
+      input_images: "[filled after image generation]",
+    };
+  }
+
+  return {
+    ...videoRequest,
+    image_url: "[filled after image generation]",
+  };
 }
 
 async function apiFetch(url, options = {}) {
@@ -179,8 +284,8 @@ async function main() {
 
   const keyId = getEnv("HIGGS_KEY_ID");
   const apiSecret = getEnv("HIGGS_API_SECRET");
-  const imageEndpoint = getEnv("SENPAI_HIGGSFIELD_IMAGE_ENDPOINT", "higgsfield-ai/soul/standard");
-  const videoEndpoint = getEnv("SENPAI_HIGGSFIELD_VIDEO_ENDPOINT", "higgsfield-ai/dop/standard");
+  const imageEndpoint = getEnv("SENPAI_HIGGSFIELD_IMAGE_ENDPOINT", "/v1/text2image/soul");
+  const videoEndpoint = getEnv("SENPAI_HIGGSFIELD_VIDEO_ENDPOINT", "/v1/image2video/dop");
   if (!keyId || !apiSecret) {
     warning("Higgsfield video skipped because HIGGS_KEY_ID or HIGGS_API_SECRET is missing.");
     return;
@@ -195,22 +300,14 @@ async function main() {
   }
 
   const review = JSON.parse(fs.readFileSync(reviewPath, "utf8"));
-  const imageRequest = {
-    prompt: buildImagePrompt(review),
-    aspect_ratio: getEnv("SENPAI_HIGGSFIELD_ASPECT_RATIO", "9:16"),
-    resolution: getEnv("SENPAI_HIGGSFIELD_IMAGE_RESOLUTION", "720p"),
-  };
-  const videoRequest = {
-    image_url: "",
-    prompt: buildVideoPrompt(review),
-    duration: Number(getEnv("SENPAI_HIGGSFIELD_DURATION", "5")),
-  };
+  const imageRequest = buildImageRequest(review, imageEndpoint);
+  const videoRequest = buildVideoRequest(review, videoEndpoint);
 
   fs.writeFileSync(requestPath, `${JSON.stringify({
     image_endpoint: imageEndpoint,
     video_endpoint: videoEndpoint,
     image_request: imageRequest,
-    video_request: { ...videoRequest, image_url: "[filled after image generation]" },
+    video_request: redactedVideoRequest(videoRequest, videoEndpoint),
   }, null, 2)}\n`);
 
   if (getEnv("SENPAI_HIGGSFIELD_DRY_RUN") === "true") {
@@ -245,7 +342,7 @@ async function main() {
   }
 
   const imageDownload = await downloadFile(imageUrl, imageOutputBase, "png");
-  videoRequest.image_url = imageUrl;
+  attachImageToVideoRequest(videoRequest, videoEndpoint, imageUrl);
 
   const videoSubmitted = await apiFetch(endpointFor(videoEndpoint), {
     method: "POST",
