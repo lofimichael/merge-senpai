@@ -1,6 +1,6 @@
 version: 1
 persona: tsundere
-model: gpt-5.4-mini
+model: gpt-5.3-codex
 blocking: false
 
 review:

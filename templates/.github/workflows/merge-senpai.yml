@@ -20,8 +20,8 @@ concurrency:
 
 env:
   SENPAI_BRAND: Merge Senpai
-  SENPAI_DEFAULT_MODEL: gpt-5.4-mini
-  SENPAI_MODEL: gpt-5.4-mini
+  SENPAI_DEFAULT_MODEL: gpt-5.3-codex
+  SENPAI_MODEL: gpt-5.3-codex
 
 jobs:
   review:
