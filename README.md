@@ -2,12 +2,12 @@
 
 Static review-card storage for Merge Senpai.
 
-- Latest report: [PR #13 at 9e2b376caaa46104a07085bc7df81f8a79003503](pr-13/9e2b376caaa46104a07085bc7df81f8a79003503.html)
-- Latest generated keyframe: [PR #13 Higgsfield image](pr-13/9e2b376caaa46104a07085bc7df81f8a79003503-higgsfield-keyframe.png)
-- Latest video briefing: [PR #13 Higgsfield MP4](pr-13/9e2b376caaa46104a07085bc7df81f8a79003503-higgsfield.mp4)
-- Player link: [player.html#v=./pr-13/9e2b376caaa46104a07085bc7df81f8a79003503-higgsfield.mp4](player.html#v=./pr-13/9e2b376caaa46104a07085bc7df81f8a79003503-higgsfield.mp4)
-- Source PR: https://github.com/lofimichael/merge-senpai/pull/13
-- Published: 2026-07-08T23:33:29Z
+- Latest report: [PR #14 at 8c5e2caf764068a03875390c2263b6564dc7288a](pr-14/8c5e2caf764068a03875390c2263b6564dc7288a.html)
+- Latest generated keyframe: [PR #14 Higgsfield image](pr-14/8c5e2caf764068a03875390c2263b6564dc7288a-higgsfield-keyframe.png)
+- Latest video briefing: [PR #14 Higgsfield MP4](pr-14/8c5e2caf764068a03875390c2263b6564dc7288a-higgsfield.mp4)
+- Player link: [player.html#v=./pr-14/8c5e2caf764068a03875390c2263b6564dc7288a-higgsfield.mp4](player.html#v=./pr-14/8c5e2caf764068a03875390c2263b6564dc7288a-higgsfield.mp4)
+- Source PR: https://github.com/lofimichael/merge-senpai/pull/14
+- Published: 2026-07-08T23:35:49Z
 
 This branch is intentionally a tiny media shelf. CI writes static review cards
 and optional generated PR recap videos here so Merge Senpai can demo durable
