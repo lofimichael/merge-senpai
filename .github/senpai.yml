@@ -20,5 +20,5 @@ commands:
 
 media:
   artifact_html: true
-  publish_media_branch: false
+  publish_media_branch: true
   storage_branch: senpai-media
