@@ -14,8 +14,15 @@ function setOutput(name, value) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${String(value).replace(/\n/g, " ")}\n`);
 }
 
+function escapeWorkflowCommandValue(value) {
+  return String(value)
+    .replace(/%/g, "%25")
+    .replace(/\r/g, "%0D")
+    .replace(/\n/g, "%0A");
+}
+
 function warning(message) {
-  console.log(`::warning::${String(message).replace(/\r?\n/g, " ")}`);
+  console.log(`::warning::${escapeWorkflowCommandValue(message)}`);
 }
 
 function getEnv(name, fallback = "") {
