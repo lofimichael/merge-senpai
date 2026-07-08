@@ -1,0 +1,21 @@
+{
+  "name": "merge-senpai-github-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Stateless GitHub App dispatcher for Merge Senpai.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/worker.js"
+  },
+  "dependencies": {
+    "@octokit/auth-app": "^8.2.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.107.1"
+  }
+}

@@ -1,23 +1,31 @@
 # Merge Senpai
 
-Merge Senpai is a BYOK, no-server PR reviewer that runs inside your own GitHub Actions, posts a branded review, and can turn maintainer comments into same-branch fix commits.
+Merge Senpai is a BYOK PR reviewer that runs the code review inside the installing repository's GitHub Actions and uses a lightweight GitHub App dispatcher as its control plane.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/lofimichael/merge-senpai/main/install.sh | bash
-```
+## Install
 
-Run that from the root of a GitHub repository. The installer finds the git root, creates `.github/` if needed, and writes a transparent install that you can review before committing:
+Install the Merge Senpai GitHub App on the repositories you want reviewed. The
+app writes the static setup files into each installed repository:
 
 - `.github/workflows/merge-senpai.yml`
 - `.github/senpai.yml`
 - `.github/merge-senpai/avatar.png`
 - `.github/merge-senpai/player.html`
 
-Then add the OpenAI key used only for this reviewer:
+Then add the OpenAI key used only for this reviewer to each repository:
 
 ```bash
 gh secret set MERGE_SENPAI_OPENAI_KEY
 ```
+
+The app does not synthesize workflow YAML. The exact files it installs live in
+this repository under `templates/`, so the source template and installed result
+are easy to diff.
+
+If a repository's default branch protection blocks direct commits from GitHub
+Apps, automatic setup can fail. In that case, allow this app to write setup
+commits or add a setup-PR fallback before relying on zero-touch install for that
+repository.
 
 ## What It Does
 
@@ -25,59 +33,88 @@ gh secret set MERGE_SENPAI_OPENAI_KEY
 - Runs Codex in GitHub Actions with your `MERGE_SENPAI_OPENAI_KEY`.
 - Posts a branded, nonblocking PR review as `github-actions[bot]`.
 - Uploads a branded HTML review card as a workflow artifact.
-- Responds to maintainer comments like `/senpai fix the failing test`.
+- Responds to write/admin-class maintainer comments that mention `senpai`.
 - Keeps fork PRs safe by skipping secret-backed review instead of exposing your key.
 
 The default install is nonblocking. It will not fail your CI or block merges unless you change the workflow/config to do that.
 
 ## Branding
 
-Workflow-only mode cannot change the GitHub actor from `github-actions[bot]`. GitHub controls that identity. Merge Senpai brands the parts we can control:
+The current workflow posts reviews as `github-actions[bot]`. GitHub controls that identity unless review posting moves fully into the GitHub App. Merge Senpai brands the parts we can control:
 
 - Workflow name: `Merge Senpai`
-- Check/job names: `review` and `fix`
-- Review copy, labels, generated artifact, storage branch, and fix commit author
+- Check/job name: `review`
+- Review copy, generated artifact, storage branch, and installed avatar
 - Avatar copied into `.github/merge-senpai/avatar.png`
 
-If you need comments to come from a real `merge-senpai` account, create a machine user or GitHub App and replace `GITHUB_TOKEN` usage with that token. The default stays simpler and fully BYOK.
+The Cloudflare Worker dispatcher gives the product a GitHub App boundary for
+receiving webhooks and dispatching workflow runs. The review itself still runs
+inside the user's repository, on the user's OpenAI key.
 
 ## Commands
 
 On a PR, comment:
 
 ```text
-/senpai fix the bug and add a regression test
+/senpai review
 ```
 
 or:
 
 ```text
-Senpai, fix the bug and add a regression test
+Can senpai look at this?
 ```
 
-Only `OWNER`, `MEMBER`, and `COLLABORATOR` comments trigger fixes. V1 refuses to push to fork PRs.
+Only commenters with write/admin-class access to the repository can dispatch a review.
 
 ## Optional Media Branch
 
-For public demos, you can create a storage branch for generated cards or future MP4 briefings:
+The installed config includes a `senpai-media` storage branch setting for future
+public demo artifacts. It is disabled by default.
 
-```bash
-SENPAI_CREATE_MEDIA_BRANCH=1 bash install.sh
-```
+## GitHub App
 
-This creates an orphan `senpai-media` branch using a temporary git worktree. It does not enable GitHub Pages for you; enable Pages manually if you want the branch to serve a public static player.
+- Worker source: `app/src/worker.js`
+- Wrangler config: `app/wrangler.toml`
+- Deploy workflow: `.github/workflows/deploy-merge-senpai-worker.yml`
+
+Store the GitHub App credentials as GitHub Actions secrets in this Merge Senpai source repo, not in source files:
+
+- `MERGE_SENPAI_APP_ID`
+- `MERGE_SENPAI_APP_PRIVATE_KEY`
+- `MERGE_SENPAI_WEBHOOK_SECRET`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+The deploy workflow syncs those values into Cloudflare Worker secrets.
+
+The GitHub App needs these repository permissions:
+
+- `Actions: read/write`
+- `Contents: read/write`
+- `Issues: read`
+- `Metadata: read`
+- `Pull requests: read`
+- `Workflows: read/write`
+
+Subscribe it to `installation`, `installation_repositories`, `issue_comment`,
+and `pull_request` events.
 
 ## Local Development
 
-To install from a local checkout instead of the raw URL:
-
 ```bash
-bash install.sh
+cd app
+npm install
+npm run dev
 ```
 
-Overwrite generated files intentionally:
+See `app/README.md` for GitHub App permissions and hosting notes.
+
+To edit the setup payload that the app writes into installed repositories, change
+files under `templates/` directly:
 
 ```bash
-bash install.sh --force
+templates/.github/workflows/merge-senpai.yml
+templates/.github/senpai.yml
+templates/.github/merge-senpai/player.html
 ```
-
