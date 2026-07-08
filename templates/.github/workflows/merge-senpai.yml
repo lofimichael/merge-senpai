@@ -223,69 +223,6 @@ jobs:
           fs.writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`);
           NODE
 
-      - name: Generate Higgsfield media briefing
-        if: steps.gate.outputs.enabled == 'true'
-        id: higgsfield
-        env:
-          HIGGS_KEY_ID: ${{ secrets.HIGGS_KEY_ID }}
-          HIGGS_API_SECRET: ${{ secrets.HIGGS_API_SECRET }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
-        run: |
-          set -euo pipefail
-          config_value() {
-            sed -n -E "s/^  $1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p; s/^$1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p" "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true
-          }
-          bool_value() {
-            printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-          }
-          set_higgsfield_env() {
-            local name="$1"
-            local config_key="$2"
-            local value
-            value="$(config_value "$config_key")"
-            export "$name=$value"
-          }
-
-          enabled="$(bool_value "$(config_value higgsfield_video)")"
-          if [ "$enabled" != "true" ]; then
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          private_allowed="$(bool_value "$(config_value higgsfield_private)")"
-          if [ "$REPOSITORY_PRIVATE" = "true" ] && [ "$private_allowed" != "true" ]; then
-            echo "::warning::Higgsfield video skipped for private repository because media.higgsfield_private is not true."
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ -n "${HIGGS_KEY_ID:-}" ]; then echo "::add-mask::$HIGGS_KEY_ID"; fi
-          if [ -n "${HIGGS_API_SECRET:-}" ]; then echo "::add-mask::$HIGGS_API_SECRET"; fi
-          if [ ! -f .github/merge-senpai/generate-higgsfield-video.mjs ]; then
-            mkdir -p .github/merge-senpai
-            if ! git show "origin/$BASE_REF:.github/merge-senpai/generate-higgsfield-video.mjs" > .github/merge-senpai/generate-higgsfield-video.mjs 2>/dev/null; then
-              echo "::warning::Higgsfield media skipped because the helper is missing from the checked-out PR tree and base branch."
-              echo "generated=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_ENDPOINT higgsfield_image_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_ENDPOINT higgsfield_video_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT higgsfield_fallback_image_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT higgsfield_fallback_video_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_DURATION higgsfield_duration
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_RESOLUTION higgsfield_image_resolution
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_QUALITY higgsfield_image_quality
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_SIZE higgsfield_image_size
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_BATCH_SIZE higgsfield_image_batch_size
-          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_MODEL higgsfield_video_model
-          set_higgsfield_env SENPAI_HIGGSFIELD_ENHANCE_PROMPT higgsfield_enhance_prompt
-          set_higgsfield_env SENPAI_HIGGSFIELD_ASPECT_RATIO higgsfield_aspect_ratio
-          if ! node .github/merge-senpai/generate-higgsfield-video.mjs; then
-            echo "::warning::Higgsfield media generation failed; continuing with the review card only."
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Post branded review
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -432,6 +369,72 @@ jobs:
           path: ${{ runner.temp }}/senpai-report.html
           if-no-files-found: error
           retention-days: 14
+
+      - name: Generate Higgsfield media briefing
+        if: steps.gate.outputs.enabled == 'true'
+        id: higgsfield
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          HIGGS_KEY_ID: ${{ secrets.HIGGS_KEY_ID }}
+          HIGGS_API_SECRET: ${{ secrets.HIGGS_API_SECRET }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          config_value() {
+            sed -n -E "s/^  $1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p; s/^$1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p" "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true
+          }
+          bool_value() {
+            printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+          }
+          set_higgsfield_env() {
+            local name="$1"
+            local config_key="$2"
+            local value
+            value="$(config_value "$config_key")"
+            export "$name=$value"
+          }
+
+          enabled="$(bool_value "$(config_value higgsfield_video)")"
+          if [ "$enabled" != "true" ]; then
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          private_allowed="$(bool_value "$(config_value higgsfield_private)")"
+          if [ "$REPOSITORY_PRIVATE" = "true" ] && [ "$private_allowed" != "true" ]; then
+            echo "::warning::Higgsfield video skipped for private repository because media.higgsfield_private is not true."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "${HIGGS_KEY_ID:-}" ]; then echo "::add-mask::$HIGGS_KEY_ID"; fi
+          if [ -n "${HIGGS_API_SECRET:-}" ]; then echo "::add-mask::$HIGGS_API_SECRET"; fi
+          if [ ! -f .github/merge-senpai/generate-higgsfield-video.mjs ]; then
+            mkdir -p .github/merge-senpai
+            if ! git show "origin/$BASE_REF:.github/merge-senpai/generate-higgsfield-video.mjs" > .github/merge-senpai/generate-higgsfield-video.mjs 2>/dev/null; then
+              echo "::warning::Higgsfield media skipped because the helper is missing from the checked-out PR tree and base branch."
+              echo "generated=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_ENDPOINT higgsfield_image_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_ENDPOINT higgsfield_video_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT higgsfield_fallback_image_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT higgsfield_fallback_video_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_DURATION higgsfield_duration
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_RESOLUTION higgsfield_image_resolution
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_QUALITY higgsfield_image_quality
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_SIZE higgsfield_image_size
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_BATCH_SIZE higgsfield_image_batch_size
+          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_MODEL higgsfield_video_model
+          set_higgsfield_env SENPAI_HIGGSFIELD_ENHANCE_PROMPT higgsfield_enhance_prompt
+          set_higgsfield_env SENPAI_HIGGSFIELD_ASPECT_RATIO higgsfield_aspect_ratio
+          set_higgsfield_env SENPAI_HIGGSFIELD_MAX_POLL_MS higgsfield_max_poll_ms
+          if ! node .github/merge-senpai/generate-higgsfield-video.mjs; then
+            echo "::warning::Higgsfield media generation failed; continuing with the review card only."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Upload Higgsfield media briefing
         if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true'
