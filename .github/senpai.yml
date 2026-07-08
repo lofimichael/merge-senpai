@@ -25,6 +25,8 @@ media:
   higgsfield_video: true
   higgsfield_image_endpoint: /v1/text2image/soul
   higgsfield_video_endpoint: /v1/image2video/dop
+  higgsfield_fallback_image_endpoint: higgsfield-ai/soul/standard
+  higgsfield_fallback_video_endpoint: higgsfield-ai/dop/standard
   higgsfield_duration: 5
   higgsfield_image_resolution: 1080p
   higgsfield_image_quality: 1080p
