@@ -1,0 +1,108 @@
+name: Deploy Merge Senpai Worker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - app/**
+      - .github/workflows/deploy-merge-senpai-worker.yml
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target GitHub Environment
+        required: true
+        default: development
+        type: choice
+        options:
+          - development
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    environment: ${{ github.event_name == 'push' && 'production' || github.event.inputs.environment || 'development' }}
+    concurrency:
+      group: merge-senpai-worker-${{ github.event_name == 'push' && 'production' || github.event.inputs.environment || 'development' }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    env:
+      TARGET_ENV: ${{ github.event_name == 'push' && 'production' || github.event.inputs.environment || 'development' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$TARGET_ENV" = "production" ]; then
+            worker_name="merge-senpai-github-app"
+          else
+            worker_name="merge-senpai-github-app-dev"
+          fi
+
+          echo "WORKER_NAME=$worker_name" >> "$GITHUB_ENV"
+
+      - name: Validate deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MERGE_SENPAI_APP_ID: ${{ secrets.MERGE_SENPAI_APP_ID }}
+          MERGE_SENPAI_APP_PRIVATE_KEY: ${{ secrets.MERGE_SENPAI_APP_PRIVATE_KEY }}
+          MERGE_SENPAI_WEBHOOK_SECRET: ${{ secrets.MERGE_SENPAI_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+
+          require_secret() {
+            local name="$1"
+            local value="$2"
+            if [ -z "$value" ]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          }
+
+          require_secret CLOUDFLARE_API_TOKEN "$CLOUDFLARE_API_TOKEN"
+          require_secret CLOUDFLARE_ACCOUNT_ID "$CLOUDFLARE_ACCOUNT_ID"
+          require_secret MERGE_SENPAI_APP_ID "$MERGE_SENPAI_APP_ID"
+          require_secret MERGE_SENPAI_APP_PRIVATE_KEY "$MERGE_SENPAI_APP_PRIVATE_KEY"
+          require_secret MERGE_SENPAI_WEBHOOK_SECRET "$MERGE_SENPAI_WEBHOOK_SECRET"
+
+      - name: Sync worker runtime secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APP_ID: ${{ secrets.MERGE_SENPAI_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.MERGE_SENPAI_APP_PRIVATE_KEY }}
+          WEBHOOK_SECRET: ${{ secrets.MERGE_SENPAI_WEBHOOK_SECRET }}
+          WORKER_NAME: ${{ env.WORKER_NAME }}
+        run: |
+          set -euo pipefail
+
+          printf '%s' "$APP_ID" \
+            | npx wrangler secret put APP_ID --name "$WORKER_NAME" --config wrangler.toml
+          printf '%s' "$PRIVATE_KEY" \
+            | npx wrangler secret put PRIVATE_KEY --name "$WORKER_NAME" --config wrangler.toml
+          printf '%s' "$WEBHOOK_SECRET" \
+            | npx wrangler secret put WEBHOOK_SECRET --name "$WORKER_NAME" --config wrangler.toml
+
+      - name: Deploy to Cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WORKER_NAME: ${{ env.WORKER_NAME }}
+        run: npx wrangler deploy --name "$WORKER_NAME" --config wrangler.toml

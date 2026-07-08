@@ -1,0 +1,22 @@
+name = "merge-senpai-github-app"
+main = "src/worker.js"
+compatibility_date = "2026-07-08"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+SENPAI_WORKFLOW_ID = "merge-senpai.yml"
+SENPAI_AUTO_DISPATCH = "true"
+SENPAI_TEMPLATE_BASE_URL = "https://raw.githubusercontent.com/lofimichael/merge-senpai/main"
+SENPAI_SETUP_OVERWRITE = "false"
+
+[observability]
+enabled = true
+
+# Runtime secrets are synced by `.github/workflows/deploy-merge-senpai-worker.yml`:
+#   APP_ID
+#   PRIVATE_KEY
+#   WEBHOOK_SECRET
+#
+# Optional runtime secrets/vars:
+#   SENPAI_WORKFLOW_REF

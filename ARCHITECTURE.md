@@ -4,18 +4,27 @@ Last updated: 2026-07-08
 
 ## 0. Executive Decision
 
-2026-07-08 update: the hackathon install path is now a BYOK workflow installer,
-not a GitHub App. The GitHub App architecture remains a reasonable future path
-for first-class bot identity, but the current 80/20 is a single transparent
-workflow copied into the user's repository by `install.sh`. This preserves the
-"no Merge Senpai server sees your code" story, keeps all OpenAI usage on the
-repository owner's key, and makes the install PR itself reviewable.
+2026-07-08 update: the canonical path is a BYOK workflow installed in the target
+repository plus a Cloudflare Worker GitHub App dispatcher. The install payload
+lives as static files in `templates/`; the Worker copies missing files into each
+installed repository on app installation, repository-added events, and review
+dispatch. This keeps the installed workflow reviewable and keeps all OpenAI
+usage on the repository owner's key.
 
-The workflow-mode tradeoff is identity: reviews and comments are authored by
+The GitHub App architecture is represented by one Worker-native dispatcher under
+`app/`. It is deliberately stateless: it receives GitHub App webhooks, verifies
+the sender, and dispatches the installed workflow with `workflow_dispatch`. The
+workflow remains the source of code-review behavior.
+
+Repository access is controlled by GitHub App installation scope, not a Merge
+Senpai-maintained allowlist. Comment-triggered dispatch verifies the sender's
+repository permission through GitHub before dispatching; read-only commenters
+cannot trigger secret-backed workflows just by mentioning `senpai`.
+
+The current identity tradeoff: reviews and comments are authored by
 `github-actions[bot]`. Merge Senpai branding lives in the workflow name, check
-name, review body, fix commit author, labels, artifacts, media branch, and
-installed avatar. A real `merge-senpai[bot]` identity still requires a GitHub
-App or an optional machine-user token.
+name, review body, artifacts, media branch, and installed avatar. Moving review
+posting itself to the GitHub App token is a future improvement.
 
 Merge Senpai should ship as a zero-server GitHub Action that uses a dedicated
 OpenAI API key supplied by the installing repository. The minimum impressive
@@ -264,11 +273,23 @@ Media behavior differs by repo visibility:
 
 ```text
 Installing repository
-  .github/workflows/senpai-review.yml
-  .github/workflows/senpai-fix.yml
+  .github/workflows/merge-senpai.yml
   .github/senpai.yml
   secrets.MERGE_SENPAI_OPENAI_KEY
   optional GitHub App/PAT identity secrets
+
+merge-senpai setup payload
+  templates/
+    .github/workflows/merge-senpai.yml
+    .github/senpai.yml
+    .github/merge-senpai/avatar.png
+    .github/merge-senpai/player.html
+
+Cloudflare Worker dispatcher
+  app/src/worker.js
+  app/wrangler.toml
+  app/package.json
+  .github/workflows/deploy-merge-senpai-worker.yml
 
 merge-senpai/merge-senpai action
   action.yml

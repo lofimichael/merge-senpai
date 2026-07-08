@@ -1,0 +1,8 @@
+APP_ID=
+WEBHOOK_SECRET=
+PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+
+SENPAI_WORKFLOW_ID=merge-senpai.yml
+SENPAI_AUTO_DISPATCH=true
+SENPAI_TEMPLATE_BASE_URL=https://raw.githubusercontent.com/lofimichael/merge-senpai/main
+SENPAI_SETUP_OVERWRITE=false
