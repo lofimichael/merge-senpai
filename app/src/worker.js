@@ -7,6 +7,7 @@ const SETUP_FILES = [
   ".github/senpai.yml",
   ".github/merge-senpai/avatar.png",
   ".github/merge-senpai/player.html",
+  ".github/merge-senpai/generate-higgsfield-video.mjs",
 ];
 
 class ConfigurationError extends Error {

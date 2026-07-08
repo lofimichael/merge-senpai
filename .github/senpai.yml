@@ -22,3 +22,10 @@ media:
   artifact_html: true
   publish_media_branch: true
   storage_branch: senpai-media
+  higgsfield_video: true
+  higgsfield_image_endpoint: higgsfield-ai/soul/standard
+  higgsfield_video_endpoint: higgsfield-ai/dop/standard
+  higgsfield_duration: 5
+  higgsfield_image_resolution: 720p
+  higgsfield_aspect_ratio: 9:16
+  higgsfield_private: false

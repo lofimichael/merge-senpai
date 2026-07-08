@@ -109,7 +109,7 @@ jobs:
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["verdict", "grade", "summary", "persona_line", "briefing_script", "image_prompt", "findings"],
+            "required": ["verdict", "grade", "summary", "persona_line", "briefing_script", "image_prompt", "video_prompt", "findings"],
             "properties": {
               "verdict": { "type": "string", "enum": ["clean", "comment", "request_changes"] },
               "grade": { "type": "string" },
@@ -117,6 +117,7 @@ jobs:
               "persona_line": { "type": "string" },
               "briefing_script": { "type": "string" },
               "image_prompt": { "type": "string" },
+              "video_prompt": { "type": "string" },
               "findings": {
                 "type": "array",
                 "items": {
@@ -146,6 +147,8 @@ jobs:
           Review this pull request for correctness, security, data loss, broken tests, migration risk, and surprising behavior. Prefer high-signal findings over style nits.
 
           Output only JSON matching the provided schema. Persona is allowed only in persona_line, summary, briefing_script, and optionally finding titles. Keep finding messages clinical and actionable.
+
+          Write video_prompt as a short image-to-video motion script for a social recap of the PR review: visual beats, captions, and scene direction. Do not include source code, secrets, URLs, private identifiers, real person likenesses, or brand logos.
 
           Severity policy:
           - P0: security/data-loss/corruption or guaranteed production breakage.
@@ -212,11 +215,51 @@ jobs:
               persona_line: "I asked for clean JSON and got a paper crane instead. Hmph.",
               briefing_script: "Merge Senpai could not parse the review output. Please inspect the workflow logs and re-run the review.",
               image_prompt: "",
+              video_prompt: "A fictional tech influencer stands in front of animated CI panels as the review output glitches, then points viewers to the workflow logs for a rerun.",
               findings: []
             };
           }
+          parsed.video_prompt ||= parsed.briefing_script || parsed.summary || "";
           fs.writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`);
           NODE
+
+      - name: Generate Higgsfield media briefing
+        if: steps.gate.outputs.enabled == 'true'
+        id: higgsfield
+        env:
+          HIGGS_KEY_ID: ${{ secrets.HIGGS_KEY_ID }}
+          HIGGS_API_SECRET: ${{ secrets.HIGGS_API_SECRET }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          config_value() {
+            sed -n -E "s/^  $1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p; s/^$1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p" "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true
+          }
+          bool_value() {
+            printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+          }
+
+          enabled="$(bool_value "$(config_value higgsfield_video)")"
+          if [ "$enabled" != "true" ]; then
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          private_allowed="$(bool_value "$(config_value higgsfield_private)")"
+          if [ "$REPOSITORY_PRIVATE" = "true" ] && [ "$private_allowed" != "true" ]; then
+            echo "::warning::Higgsfield video skipped for private repository because media.higgsfield_private is not true."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -n "${HIGGS_KEY_ID:-}" ]; then echo "::add-mask::$HIGGS_KEY_ID"; fi
+          if [ -n "${HIGGS_API_SECRET:-}" ]; then echo "::add-mask::$HIGGS_API_SECRET"; fi
+          export SENPAI_HIGGSFIELD_IMAGE_ENDPOINT="$(config_value higgsfield_image_endpoint)"
+          export SENPAI_HIGGSFIELD_VIDEO_ENDPOINT="$(config_value higgsfield_video_endpoint)"
+          export SENPAI_HIGGSFIELD_DURATION="$(config_value higgsfield_duration)"
+          export SENPAI_HIGGSFIELD_IMAGE_RESOLUTION="$(config_value higgsfield_image_resolution)"
+          export SENPAI_HIGGSFIELD_ASPECT_RATIO="$(config_value higgsfield_aspect_ratio)"
+          node .github/merge-senpai/generate-higgsfield-video.mjs
 
       - name: Post branded review
         if: steps.gate.outputs.enabled == 'true'
@@ -231,6 +274,9 @@ jobs:
           const blockers = findings.filter(f => ["P0", "P1"].includes(String(f.severity))).length;
           const avatarUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${process.env.BASE_REF}/.github/merge-senpai/avatar.png`;
           const marker = `<!-- merge-senpai:review:${process.env.PR_NUMBER}:${process.env.HEAD_SHA} -->`;
+          const baseConfig = fs.existsSync(`${process.env.RUNNER_TEMP}/base-senpai.yml`)
+            ? fs.readFileSync(`${process.env.RUNNER_TEMP}/base-senpai.yml`, "utf8")
+            : "";
 
           function mdEscape(value) {
             return String(value ?? "").replace(/\r/g, "").trim();
@@ -251,6 +297,10 @@ jobs:
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;");
           }
+          function configValue(name, fallback = "") {
+            const pattern = new RegExp(`(?:^|\\n)\\s{0,2}${name}:\\s*"?([^"\\n#]+)"?`);
+            return (baseConfig.match(pattern)?.[1] || fallback).trim();
+          }
 
           const verdict = mdEscape(review.verdict || "comment");
           const grade = mdEscape(review.grade || "?");
@@ -261,6 +311,15 @@ jobs:
           };
           const verdictLabel = verdictLabels[verdict] || "Review";
           const reviewTitle = `${verdictLabel} (${grade})`;
+          const storageBranch = configValue("storage_branch", "senpai-media");
+          const videoBranchPath = `pr-${process.env.PR_NUMBER}/${process.env.HEAD_SHA}-higgsfield.mp4`;
+          const imageFile = fs.readdirSync(process.env.RUNNER_TEMP).find(name => name.startsWith("senpai-briefing-image."));
+          const imageBranchPath = imageFile ? `pr-${process.env.PR_NUMBER}/${process.env.HEAD_SHA}-higgsfield-keyframe.${imageFile.split(".").pop()}` : "";
+          const hasVideo = fs.existsSync(`${process.env.RUNNER_TEMP}/senpai-briefing.mp4`);
+          const hasImage = Boolean(imageBranchPath);
+          const videoUrl = `https://github.com/${process.env.GITHUB_REPOSITORY}/blob/${storageBranch}/${videoBranchPath}`;
+          const imageUrl = imageBranchPath ? `https://github.com/${process.env.GITHUB_REPOSITORY}/blob/${storageBranch}/${imageBranchPath}` : "";
+          const rawVideoUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${storageBranch}/${videoBranchPath}`;
 
           let body = `${marker}\n<img src="${avatarUrl}" width="72" align="right" alt="Merge Senpai" />\n\n`;
           body += `# Merge Senpai Review: ${reviewTitle}\n\n`;
@@ -269,6 +328,11 @@ jobs:
           body += `**Findings:** ${findings.length} total, ${blockers} blocking-class\n\n`;
           body += `> ${mdEscape(review.persona_line || "I reviewed it because somebody had to.")}\n\n`;
           body += `${mdEscape(review.summary || "No summary returned.")}\n\n`;
+          if (hasImage || hasVideo) {
+            if (hasImage) body += `**Generated keyframe:** [image on \`${storageBranch}\`](${imageUrl})  \n`;
+            if (hasVideo) body += `**Video briefing:** [MP4 on \`${storageBranch}\`](${videoUrl})  \n`;
+            body += `Generated from Codex's PR media prompts using the repository's Higgsfield credentials.\n\n`;
+          }
 
           if (findings.length) {
             body += `## Findings\n\n`;
@@ -307,6 +371,12 @@ jobs:
               <p>${htmlEscape(f.message || "")}</p>
             </article>
           `).join("");
+          const videoSection = hasVideo ? `
+              <section>
+                <h2>Video Briefing</h2>
+                <p><a href="${htmlEscape(videoUrl)}">Open MP4 on ${htmlEscape(storageBranch)}</a></p>
+                <p><a href="${htmlEscape(rawVideoUrl)}">Raw MP4 URL</a></p>
+              </section>` : "";
           const html = `<!doctype html>
           <html lang="en">
           <head>
@@ -326,6 +396,7 @@ jobs:
             <main>
               <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai Review: ${htmlEscape(reviewTitle)}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
               <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings. Keep shipping carefully.</p>"}</section>
+              ${videoSection}
             </main>
           </body>
           </html>`;
@@ -342,6 +413,17 @@ jobs:
         with:
           name: merge-senpai-pr-${{ env.PR_NUMBER }}
           path: ${{ runner.temp }}/senpai-report.html
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Higgsfield media briefing
+        if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-senpai-media-pr-${{ env.PR_NUMBER }}
+          path: |
+            ${{ runner.temp }}/senpai-briefing.mp4
+            ${{ runner.temp }}/senpai-briefing-image.*
           if-no-files-found: error
           retention-days: 14
 
@@ -373,68 +455,117 @@ jobs:
             mkdir -p "pr-$PR_NUMBER"
             report_path="pr-$PR_NUMBER/$HEAD_SHA.html"
             cp "$RUNNER_TEMP/senpai-report.html" "$report_path"
+            image_path=""
+            image_source="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
+            if [ -n "$image_source" ]; then
+              image_ext="${image_source##*.}"
+              image_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield-keyframe.$image_ext"
+              cp "$image_source" "$image_path"
+            fi
+            video_path=""
+            if [ -f "$RUNNER_TEMP/senpai-briefing.mp4" ]; then
+              video_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield.mp4"
+              cp "$RUNNER_TEMP/senpai-briefing.mp4" "$video_path"
+            fi
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/player.html" "player.html" 2>/dev/null || true
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/avatar.png" "avatar.png" 2>/dev/null || true
             published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            cat > README.md <<EOF
-          # Merge Senpai Media
-          
-          Static review-card storage for Merge Senpai.
-          
-          - Latest report: [PR #$PR_NUMBER at $HEAD_SHA]($report_path)
-          - Source PR: https://github.com/${GITHUB_REPOSITORY}/pull/$PR_NUMBER
-          - Published: $published_at
-          
-          This branch is intentionally a tiny media shelf. CI writes static review cards
-          here so Merge Senpai can demo durable artifacts without running a database,
-          bucket, or asset server.
-          
-          Presentation note: this is a GitHub-flavored nod to the Infinite Storage Glitch
-          idea of using an unexpected host as storage:
-          https://github.com/KKarmugil/Infinite_Storage_Glitch
-          EOF
-            cat > index.html <<EOF
-          <!doctype html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Merge Senpai Media</title>
-            <style>
-              body{margin:0;background:#101012;color:#f7f2ea;font:16px/1.5 ui-sans-serif,system-ui;padding:32px}
-              main{max-width:880px;margin:auto}
-              img{width:64px;height:64px;border-radius:6px;background:#fff}
-              header{display:flex;gap:16px;align-items:center;margin-bottom:28px}
-              h1{margin:0;font-size:30px}
-              p{color:#c8c0b8}
-              a{color:#f3c969}
-              .panel{border:1px solid #343238;border-radius:8px;background:#19191d;padding:20px;margin:16px 0}
-              code{color:#ff9aa7}
-            </style>
-          </head>
-          <body>
-            <main>
-              <header>
-                <img src="./avatar.png" alt="Merge Senpai">
-                <div>
-                  <h1>Merge Senpai Media</h1>
-                  <p>Static review cards stored on the <code>senpai-media</code> branch.</p>
-                </div>
-              </header>
-              <section class="panel">
-                <h2>Latest Review Card</h2>
-                <p><a href="./$report_path">Open PR #$PR_NUMBER report for $HEAD_SHA</a></p>
-                <p><a href="https://github.com/${GITHUB_REPOSITORY}/pull/$PR_NUMBER">Open the pull request</a></p>
-              </section>
-              <section class="panel">
-                <h2>Presentation Hook</h2>
-                <p>Inspired by the playful Infinite Storage Glitch idea: if video can be storage, a Git branch can be a tiny review-card shelf.</p>
-                <p><a href="https://github.com/KKarmugil/Infinite_Storage_Glitch">Infinite Storage Glitch reference</a></p>
-              </section>
-            </main>
-          </body>
-          </html>
-          EOF
+            REPORT_PATH="$report_path" IMAGE_PATH="$image_path" VIDEO_PATH="$video_path" PUBLISHED_AT="$published_at" node <<'NODE'
+            const fs = require("fs");
+            const repo = process.env.GITHUB_REPOSITORY;
+            const pr = process.env.PR_NUMBER;
+            const sha = process.env.HEAD_SHA;
+            const reportPath = process.env.REPORT_PATH;
+            const imagePath = process.env.IMAGE_PATH || "";
+            const videoPath = process.env.VIDEO_PATH || "";
+            const publishedAt = process.env.PUBLISHED_AT;
+            const readme = [
+              "# Merge Senpai Media",
+              "",
+              "Static review-card storage for Merge Senpai.",
+              "",
+              `- Latest report: [PR #${pr} at ${sha}](${reportPath})`,
+              ...(imagePath ? [
+                `- Latest generated keyframe: [PR #${pr} Higgsfield image](${imagePath})`,
+              ] : []),
+              ...(videoPath ? [
+                `- Latest video briefing: [PR #${pr} Higgsfield MP4](${videoPath})`,
+                `- Player link: [player.html#v=./${videoPath}](player.html#v=./${videoPath})`,
+              ] : []),
+              `- Source PR: https://github.com/${repo}/pull/${pr}`,
+              `- Published: ${publishedAt}`,
+              "",
+              "This branch is intentionally a tiny media shelf. CI writes static review cards",
+              "and optional generated PR recap videos here so Merge Senpai can demo durable",
+              "artifacts without running a database, bucket, or asset server.",
+              "",
+              "Presentation note: this is a GitHub-flavored nod to the Infinite Storage Glitch",
+              "idea of using an unexpected host as storage:",
+              "https://github.com/KKarmugil/Infinite_Storage_Glitch",
+              "",
+            ].join("\n");
+            fs.writeFileSync("README.md", readme);
+
+            const imagePanel = imagePath ? [
+              '    <section class="panel">',
+              "      <h2>Generated Keyframe</h2>",
+              `      <p><a href="./${imagePath}">Open generated Higgsfield image</a></p>`,
+              "    </section>",
+            ].join("\n") : "";
+            const videoPanel = videoPath ? [
+              '    <section class="panel">',
+              "      <h2>Video Briefing</h2>",
+              `      <p><a href="./${videoPath}">Open generated Higgsfield MP4</a></p>`,
+              `      <p><a href="./player.html#v=./${videoPath}">Open in the static player</a></p>`,
+              "    </section>",
+            ].join("\n") : "";
+            const html = [
+              "<!doctype html>",
+              '<html lang="en">',
+              "<head>",
+              '  <meta charset="utf-8">',
+              '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+              "  <title>Merge Senpai Media</title>",
+              "  <style>",
+              "    body{margin:0;background:#101012;color:#f7f2ea;font:16px/1.5 ui-sans-serif,system-ui;padding:32px}",
+              "    main{max-width:880px;margin:auto}",
+              "    img{width:64px;height:64px;border-radius:6px;background:#fff}",
+              "    header{display:flex;gap:16px;align-items:center;margin-bottom:28px}",
+              "    h1{margin:0;font-size:30px}",
+              "    p{color:#c8c0b8}",
+              "    a{color:#f3c969}",
+              "    .panel{border:1px solid #343238;border-radius:8px;background:#19191d;padding:20px;margin:16px 0}",
+              "    code{color:#ff9aa7}",
+              "  </style>",
+              "</head>",
+              "<body>",
+              "  <main>",
+              "    <header>",
+              '      <img src="./avatar.png" alt="Merge Senpai">',
+              "      <div>",
+              "        <h1>Merge Senpai Media</h1>",
+              "        <p>Static review cards and optional videos stored on the <code>senpai-media</code> branch.</p>",
+              "      </div>",
+              "    </header>",
+              '    <section class="panel">',
+              "      <h2>Latest Review Card</h2>",
+              `      <p><a href="./${reportPath}">Open PR #${pr} report for ${sha}</a></p>`,
+              `      <p><a href="https://github.com/${repo}/pull/${pr}">Open the pull request</a></p>`,
+              "    </section>",
+              imagePanel,
+              videoPanel,
+              '    <section class="panel">',
+              "      <h2>Presentation Hook</h2>",
+              "      <p>Inspired by the playful Infinite Storage Glitch idea: if video can be storage, a Git branch can be a tiny review-card shelf.</p>",
+              '      <p><a href="https://github.com/KKarmugil/Infinite_Storage_Glitch">Infinite Storage Glitch reference</a></p>',
+              "    </section>",
+              "  </main>",
+              "</body>",
+              "</html>",
+              "",
+            ].filter(Boolean).join("\n");
+            fs.writeFileSync("index.html", html);
+          NODE
             git add .
             git commit -m "Store Merge Senpai report for PR #$PR_NUMBER" || exit 0
             git push origin "HEAD:$branch"
