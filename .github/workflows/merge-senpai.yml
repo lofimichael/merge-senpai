@@ -374,7 +374,7 @@ jobs:
         if: steps.gate.outputs.enabled == 'true'
         id: higgsfield
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 10
         env:
           HIGGS_KEY_ID: ${{ secrets.HIGGS_KEY_ID }}
           HIGGS_API_SECRET: ${{ secrets.HIGGS_API_SECRET }}

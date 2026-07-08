@@ -237,16 +237,24 @@ function findVideoUrl(data) {
   );
 }
 
-async function pollStatus(initial, authHeader, maxPollMs, pollIntervalMs) {
+async function pollStatus(initial, authHeader, maxPollMs, pollIntervalMs, label = "generation") {
   let latest = initial;
   const requestId = initial.request_id || initial.id;
   const statusUrl = initial.status_url || (requestId ? `${baseUrl}/requests/${requestId}/status` : "");
   if (!statusUrl) return latest;
 
+  console.log(`Higgsfield ${label} request${requestId ? ` ${requestId}` : ""} is polling for up to ${Math.round(maxPollMs / 1000)}s.`);
   const started = Date.now();
+  let lastProgressLogMs = -30000;
   while (Date.now() - started < maxPollMs) {
     const status = String(latest.status || "").toLowerCase();
     if (["completed", "failed", "nsfw", "canceled", "cancelled"].includes(status)) return latest;
+
+    const elapsedMs = Date.now() - started;
+    if (elapsedMs - lastProgressLogMs >= 30000) {
+      console.log(`Higgsfield ${label} status: ${status || "pending"} after ${Math.round(elapsedMs / 1000)}s.`);
+      lastProgressLogMs = elapsedMs;
+    }
 
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     latest = await apiFetch(statusUrl, {
@@ -293,6 +301,7 @@ async function downloadFile(url, targetPath, fallbackExtension) {
 }
 
 async function generateImage({ endpoint, request, authHeader, maxPollMs, pollIntervalMs }) {
+  console.log(`Submitting Higgsfield image request to ${endpoint}.`);
   const submitted = await apiFetch(endpointFor(endpoint), {
     method: "POST",
     headers: {
@@ -302,7 +311,8 @@ async function generateImage({ endpoint, request, authHeader, maxPollMs, pollInt
     },
     body: JSON.stringify(request),
   });
-  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs);
+  console.log(`Higgsfield image request accepted with status ${submitted.status || "submitted"}.`);
+  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs, "image");
   assertCompleted(completed, "text-to-image");
   const url = findImageUrl(completed) || findImageUrl(submitted);
   if (!url) {
@@ -312,6 +322,7 @@ async function generateImage({ endpoint, request, authHeader, maxPollMs, pollInt
 }
 
 async function generateVideo({ endpoint, request, authHeader, maxPollMs, pollIntervalMs }) {
+  console.log(`Submitting Higgsfield video request to ${endpoint}.`);
   const submitted = await apiFetch(endpointFor(endpoint), {
     method: "POST",
     headers: {
@@ -321,7 +332,8 @@ async function generateVideo({ endpoint, request, authHeader, maxPollMs, pollInt
     },
     body: JSON.stringify(request),
   });
-  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs);
+  console.log(`Higgsfield video request accepted with status ${submitted.status || "submitted"}.`);
+  const completed = await pollStatus(submitted, authHeader, maxPollMs, pollIntervalMs, "video");
   const status = assertCompleted(completed, "image-to-video");
   const url = findVideoUrl(completed) || findVideoUrl(submitted);
   if (!url) {
@@ -377,7 +389,7 @@ async function main() {
   }
 
   const authHeader = `Key ${keyId}:${apiSecret}`;
-  const maxPollMs = Number(getEnv("SENPAI_HIGGSFIELD_MAX_POLL_MS", "360000"));
+  const maxPollMs = Number(getEnv("SENPAI_HIGGSFIELD_MAX_POLL_MS", "480000"));
   const pollIntervalMs = Number(getEnv("SENPAI_HIGGSFIELD_POLL_INTERVAL_MS", "5000"));
 
   let activeImageEndpoint = imageEndpoint;

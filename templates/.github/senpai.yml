@@ -28,7 +28,7 @@ media:
   higgsfield_fallback_image_endpoint: /v1/text2image/soul
   higgsfield_fallback_video_endpoint: /v1/image2video/dop
   higgsfield_duration: 5
-  higgsfield_max_poll_ms: 900000
+  higgsfield_max_poll_ms: 480000
   higgsfield_image_resolution: 1080p
   higgsfield_image_quality: 1080p
   higgsfield_image_size: 1152x2048
