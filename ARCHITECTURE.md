@@ -417,11 +417,9 @@ Direct CLI rules:
 
 For the hackathon:
 
-- Default to `gpt-5.4-mini` for cost and speed.
-- Demo can switch to `gpt-5.5` if the first real-key probe shows material review
-  quality improvement and runtime remains acceptable.
-- Do not pin `gpt-5.3-codex` unless the key probe proves availability and the
-  team accepts the deprecation risk.
+- The current BYOK test key is limited to `gpt-5.3-codex`, so the installed
+  workflow and templates pin that model for the smoke test.
+- Revisit the default after the hackathon if broader model access is restored.
 
 ## 7. Persona System
 
