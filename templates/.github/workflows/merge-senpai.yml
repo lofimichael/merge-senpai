@@ -189,7 +189,7 @@ jobs:
           output-file: ${{ runner.temp }}/senpai-review.json
           sandbox: read-only
           codex-args: '["--ephemeral", "--output-schema", "${{ runner.temp }}/senpai.schema.json"]'
-          allow-bot-users: mergesenpai[bot]
+          allow-bots: true
 
       - name: Normalize review JSON
         if: steps.gate.outputs.enabled == 'true'
@@ -238,6 +238,13 @@ jobs:
           bool_value() {
             printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
           }
+          set_higgsfield_env() {
+            local name="$1"
+            local config_key="$2"
+            local value
+            value="$(config_value "$config_key")"
+            export "$name=$value"
+          }
 
           enabled="$(bool_value "$(config_value higgsfield_video)")"
           if [ "$enabled" != "true" ]; then
@@ -254,12 +261,28 @@ jobs:
 
           if [ -n "${HIGGS_KEY_ID:-}" ]; then echo "::add-mask::$HIGGS_KEY_ID"; fi
           if [ -n "${HIGGS_API_SECRET:-}" ]; then echo "::add-mask::$HIGGS_API_SECRET"; fi
-          export SENPAI_HIGGSFIELD_IMAGE_ENDPOINT="$(config_value higgsfield_image_endpoint)"
-          export SENPAI_HIGGSFIELD_VIDEO_ENDPOINT="$(config_value higgsfield_video_endpoint)"
-          export SENPAI_HIGGSFIELD_DURATION="$(config_value higgsfield_duration)"
-          export SENPAI_HIGGSFIELD_IMAGE_RESOLUTION="$(config_value higgsfield_image_resolution)"
-          export SENPAI_HIGGSFIELD_ASPECT_RATIO="$(config_value higgsfield_aspect_ratio)"
-          node .github/merge-senpai/generate-higgsfield-video.mjs
+          if [ ! -f .github/merge-senpai/generate-higgsfield-video.mjs ]; then
+            mkdir -p .github/merge-senpai
+            if ! git show "origin/$BASE_REF:.github/merge-senpai/generate-higgsfield-video.mjs" > .github/merge-senpai/generate-higgsfield-video.mjs 2>/dev/null; then
+              echo "::warning::Higgsfield media skipped because the helper is missing from the checked-out PR tree and base branch."
+              echo "generated=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_ENDPOINT higgsfield_image_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_ENDPOINT higgsfield_video_endpoint
+          set_higgsfield_env SENPAI_HIGGSFIELD_DURATION higgsfield_duration
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_RESOLUTION higgsfield_image_resolution
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_QUALITY higgsfield_image_quality
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_SIZE higgsfield_image_size
+          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_BATCH_SIZE higgsfield_image_batch_size
+          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_MODEL higgsfield_video_model
+          set_higgsfield_env SENPAI_HIGGSFIELD_ENHANCE_PROMPT higgsfield_enhance_prompt
+          set_higgsfield_env SENPAI_HIGGSFIELD_ASPECT_RATIO higgsfield_aspect_ratio
+          if ! node .github/merge-senpai/generate-higgsfield-video.mjs; then
+            echo "::warning::Higgsfield media generation failed; continuing with the review card only."
+            echo "generated=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Post branded review
         if: steps.gate.outputs.enabled == 'true'
@@ -312,14 +335,9 @@ jobs:
           const verdictLabel = verdictLabels[verdict] || "Review";
           const reviewTitle = `${verdictLabel} (${grade})`;
           const storageBranch = configValue("storage_branch", "senpai-media");
-          const videoBranchPath = `pr-${process.env.PR_NUMBER}/${process.env.HEAD_SHA}-higgsfield.mp4`;
           const imageFile = fs.readdirSync(process.env.RUNNER_TEMP).find(name => name.startsWith("senpai-briefing-image."));
-          const imageBranchPath = imageFile ? `pr-${process.env.PR_NUMBER}/${process.env.HEAD_SHA}-higgsfield-keyframe.${imageFile.split(".").pop()}` : "";
           const hasVideo = fs.existsSync(`${process.env.RUNNER_TEMP}/senpai-briefing.mp4`);
-          const hasImage = Boolean(imageBranchPath);
-          const videoUrl = `https://github.com/${process.env.GITHUB_REPOSITORY}/blob/${storageBranch}/${videoBranchPath}`;
-          const imageUrl = imageBranchPath ? `https://github.com/${process.env.GITHUB_REPOSITORY}/blob/${storageBranch}/${imageBranchPath}` : "";
-          const rawVideoUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${storageBranch}/${videoBranchPath}`;
+          const hasImage = Boolean(imageFile);
 
           let body = `${marker}\n<img src="${avatarUrl}" width="72" align="right" alt="Merge Senpai" />\n\n`;
           body += `# Merge Senpai Review: ${reviewTitle}\n\n`;
@@ -329,9 +347,7 @@ jobs:
           body += `> ${mdEscape(review.persona_line || "I reviewed it because somebody had to.")}\n\n`;
           body += `${mdEscape(review.summary || "No summary returned.")}\n\n`;
           if (hasImage || hasVideo) {
-            if (hasImage) body += `**Generated keyframe:** [image on \`${storageBranch}\`](${imageUrl})  \n`;
-            if (hasVideo) body += `**Video briefing:** [MP4 on \`${storageBranch}\`](${videoUrl})  \n`;
-            body += `Generated from Codex's PR media prompts using the repository's Higgsfield credentials.\n\n`;
+            body += `**Optional Higgsfield media:** generated locally. Merge Senpai will add a separate media comment if publishing to \`${storageBranch}\` succeeds.\n\n`;
           }
 
           if (findings.length) {
@@ -371,11 +387,10 @@ jobs:
               <p>${htmlEscape(f.message || "")}</p>
             </article>
           `).join("");
-          const videoSection = hasVideo ? `
+          const mediaSection = (hasImage || hasVideo) ? `
               <section>
-                <h2>Video Briefing</h2>
-                <p><a href="${htmlEscape(videoUrl)}">Open MP4 on ${htmlEscape(storageBranch)}</a></p>
-                <p><a href="${htmlEscape(rawVideoUrl)}">Raw MP4 URL</a></p>
+                <h2>Optional Media</h2>
+                <p>Higgsfield media generated locally. A separate PR comment links the committed assets if publishing to ${htmlEscape(storageBranch)} succeeds.</p>
               </section>` : "";
           const html = `<!doctype html>
           <html lang="en">
@@ -396,7 +411,7 @@ jobs:
             <main>
               <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai Review: ${htmlEscape(reviewTitle)}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
               <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings. Keep shipping carefully.</p>"}</section>
-              ${videoSection}
+              ${mediaSection}
             </main>
           </body>
           </html>`;
@@ -418,6 +433,7 @@ jobs:
 
       - name: Upload Higgsfield media briefing
         if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: merge-senpai-media-pr-${{ env.PR_NUMBER }}
@@ -428,11 +444,14 @@ jobs:
           retention-days: 14
 
       - name: Publish to senpai-media branch
+        id: publish_media
         if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          echo "published=false" >> "$GITHUB_OUTPUT"
           if ! grep -Eq '^  publish_media_branch:[[:space:]]*true|^publish_media_branch:[[:space:]]*true' "$RUNNER_TEMP/base-senpai.yml"; then
             exit 0
           fi
@@ -571,3 +590,51 @@ jobs:
             git push origin "HEAD:$branch"
           )
           git worktree remove "$tmp" --force
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Post Higgsfield media comment
+        if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true' && steps.publish_media.outputs.published == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="$(sed -n -E 's/^  storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p; s/^storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
+          branch="${branch:-senpai-media}"
+          marker="<!-- merge-senpai:media:$PR_NUMBER:$HEAD_SHA -->"
+          video_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield.mp4"
+          image_path=""
+          image_source="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
+          if [ -n "$image_source" ]; then
+            image_ext="${image_source##*.}"
+            image_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield-keyframe.$image_ext"
+          fi
+          video_url="https://github.com/$GITHUB_REPOSITORY/blob/$branch/$video_path"
+          player_url="https://github.com/$GITHUB_REPOSITORY/blob/$branch/player.html#v=./$video_path"
+
+          {
+            echo "$marker"
+            echo "## Merge Senpai Video Briefing"
+            echo
+            echo "Higgsfield generated a best-effort media recap for this review."
+            echo
+            echo "- Video: [$video_path]($video_url)"
+            echo "- Player: [open static player]($player_url)"
+            if [ -n "$image_path" ]; then
+              image_url="https://github.com/$GITHUB_REPOSITORY/blob/$branch/$image_path"
+              echo "- Keyframe: [$image_path]($image_url)"
+            fi
+          } > "$RUNNER_TEMP/senpai-media-comment.md"
+
+          comment_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
+              --jq ".[] | select(.body | contains(\"$marker\")) | .id" \
+              | tail -1
+          )"
+          if [ -n "$comment_id" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" \
+              --method PATCH \
+              --field body="$(cat "$RUNNER_TEMP/senpai-media-comment.md")" >/dev/null
+          else
+            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-media-comment.md"
+          fi
