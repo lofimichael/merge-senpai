@@ -193,10 +193,13 @@ jobs:
 
       - name: Normalize review JSON
         if: steps.gate.outputs.enabled == 'true'
+        env:
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
         run: |
           node <<'NODE'
           const fs = require("fs");
           const path = `${process.env.RUNNER_TEMP}/senpai-review.json`;
+          const statPath = `${process.env.RUNNER_TEMP}/pr.stat`;
           let raw = fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
           let parsed;
           try {
@@ -207,16 +210,34 @@ jobs:
               try { parsed = JSON.parse(match[0]); } catch {}
             }
           }
+
+          function readStatSummary() {
+            if (!fs.existsSync(statPath)) return "";
+            return fs.readFileSync(statPath, "utf8")
+              .split("\n")
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .slice(0, 8)
+              .join("; ");
+          }
+
           if (!parsed || !Array.isArray(parsed.findings)) {
+            const outcome = process.env.CODEX_OUTCOME || "unavailable";
+            const statSummary = readStatSummary();
             parsed = {
               verdict: "comment",
-              grade: "?",
-              summary: "Codex did not return valid review JSON. The raw response is attached in the workflow logs.",
-              persona_line: "I asked for clean JSON and got a paper crane instead. Hmph.",
-              briefing_script: "Merge Senpai could not parse the review output. Please inspect the workflow logs and re-run the review.",
-              image_prompt: "",
-              video_prompt: "A fictional tech influencer stands in front of animated CI panels as the review output glitches, then points viewers to the workflow logs for a rerun.",
-              findings: []
+              grade: "fallback",
+              summary: [
+                `The AI review request was ${outcome}, so Merge Senpai generated a deterministic fallback card instead of blocking the workflow.`,
+                statSummary ? `Diff summary: ${statSummary}.` : "",
+                "No AI findings were produced by the fallback path."
+              ].filter(Boolean).join(" "),
+              persona_line: "The model stalled at the gate, so I kept the artifact trail moving.",
+              briefing_script: "Merge Senpai preserved the review artifact and optional media flow while the AI review provider was unavailable.",
+              image_prompt: "A premium CI review host presents a resilient fallback card, abstract diff panels, green workflow checks, no readable text.",
+              video_prompt: "Animate a calm tech creator showing that the review card and media pipeline still completed after an AI review provider outage. Use abstract CI cards, checkmarks, and no readable text.",
+              findings: [],
+              fallback: true
             };
           }
           parsed.video_prompt ||= parsed.briefing_script || parsed.summary || "";
@@ -233,6 +254,7 @@ jobs:
           const fs = require("fs");
           const review = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/senpai-review.json`, "utf8"));
           const findings = Array.isArray(review.findings) ? review.findings : [];
+          const fallback = Boolean(review.fallback);
           const blockers = findings.filter(f => ["P0", "P1"].includes(String(f.severity))).length;
           const avatarUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${process.env.BASE_REF}/.github/merge-senpai/avatar.png`;
           const marker = `<!-- merge-senpai:review:${process.env.PR_NUMBER}:${process.env.HEAD_SHA} -->`;
@@ -308,7 +330,9 @@ jobs:
               console.log(`::${level} ${props}::${cmdEscape(finding.message || title)}`);
             }
           } else {
-            body += `No material findings. Keep shipping carefully.\n\n`;
+            body += fallback
+              ? `No AI findings were produced by the fallback path. Re-run once provider quota is available for a full AI review.\n\n`
+              : `No material findings. Keep shipping carefully.\n\n`;
           }
 
           body += `---\n`;
@@ -349,7 +373,7 @@ jobs:
           <body>
             <main>
               <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai Review: ${htmlEscape(reviewTitle)}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
-              <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || "<p>No material findings. Keep shipping carefully.</p>"}</section>
+              <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || (fallback ? "<p>No AI findings were produced by the fallback path.</p>" : "<p>No material findings. Keep shipping carefully.</p>")}</section>
               ${mediaSection}
             </main>
           </body>
