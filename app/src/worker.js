@@ -7,7 +7,9 @@ const SETUP_FILES = [
   ".github/senpai.yml",
   ".github/merge-senpai/avatar.png",
   ".github/merge-senpai/player.html",
+  ".github/merge-senpai/generate-media.mjs",
   ".github/merge-senpai/generate-higgsfield-video.mjs",
+  ".github/merge-senpai/run-local-review.mjs",
 ];
 
 class ConfigurationError extends Error {
@@ -456,6 +458,7 @@ export default {
 };
 
 export {
+  SETUP_FILES,
   normalizePrivateKey,
   parseReviewCommand,
   resolveGitHubAppConfig,

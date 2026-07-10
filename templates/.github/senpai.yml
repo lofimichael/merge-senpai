@@ -4,6 +4,10 @@ model: gpt-5.3-codex
 blocking: false
 
 review:
+  review_provider: codex-openai
+  review_runner_label: ubuntu-24.04
+  local_review_endpoint: ""
+  local_review_model: ""
   max_findings: 8
   focus:
     - correctness
@@ -19,6 +23,10 @@ commands:
     - COLLABORATOR
 
 media:
+  media_provider: off
+  media_runner_label: ubuntu-24.04
+  media_duration: 5
+  allow_public_media_self_hosted: false
   artifact_html: true
   publish_media_branch: true
   storage_branch: senpai-media
@@ -37,3 +45,10 @@ media:
   higgsfield_enhance_prompt: true
   higgsfield_aspect_ratio: 9:16
   higgsfield_private: false
+  ltx_model_dir: /opt/models/ltx-2.3
+  ltx_command: ""
+  ltx_args_json: "[]"
+  ltx_seconds: 5
+  ltx_fps: 25
+  ltx_width: 720
+  ltx_height: 1280

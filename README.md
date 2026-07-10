@@ -11,7 +11,9 @@ app writes the static setup files into each installed repository:
 - `.github/senpai.yml`
 - `.github/merge-senpai/avatar.png`
 - `.github/merge-senpai/player.html`
+- `.github/merge-senpai/generate-media.mjs`
 - `.github/merge-senpai/generate-higgsfield-video.mjs`
+- `.github/merge-senpai/run-local-review.mjs`
 
 Then add the OpenAI key used only for this reviewer to each repository:
 
@@ -32,9 +34,10 @@ repository.
 
 - Reviews same-repository pull requests on `opened`, `synchronize`, `reopened`, and `ready_for_review`.
 - Runs Codex in GitHub Actions with your `MERGE_SENPAI_OPENAI_KEY`.
+- Can optionally use a local structured-output review provider instead of Codex/OpenAI.
 - Posts a branded, nonblocking PR review as `github-actions[bot]`.
 - Uploads a branded HTML review card as a workflow artifact.
-- Can optionally generate a Higgsfield keyframe and animated PR recap.
+- Can optionally generate media through a provider-neutral media layer.
 - Responds to write/admin-class maintainer comments that mention `senpai`.
 - Keeps fork PRs safe by skipping secret-backed review instead of exposing your key.
 
@@ -69,18 +72,62 @@ Can senpai look at this?
 
 Only commenters with write/admin-class access to the repository can dispatch a review.
 
+## Review Providers
+
+The default review provider is `codex-openai`, using the repository's
+`MERGE_SENPAI_OPENAI_KEY`.
+
+For local/offline review, configure `.github/senpai.yml`:
+
+```yaml
+review:
+  review_provider: local-vllm # local-vllm | local-ollama | local-llama-cpp
+  local_review_model: qwen3-coder
+```
+
+Then configure the endpoint as a repository secret or variable:
+
+```bash
+gh secret set MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT
+gh secret set MERGE_SENPAI_LOCAL_REVIEW_API_KEY # optional
+```
+
+Local review providers must return JSON matching Merge Senpai's review schema.
+The workflow calls vLLM with JSON Schema response format, Ollama with its native
+schema `format`, and llama.cpp-style OpenAI-compatible servers with JSON-object
+format plus schema instructions. Merge Senpai still validates and normalizes the
+JSON before posting a review.
+
+Local review is opt-in. The default stays Codex/OpenAI because local model
+quality varies by model, context length, repo language, and runner hardware.
+
 ## Optional Media Branch
 
 The installed config publishes static review cards to `senpai-media` so demos
 have an obvious artifact trail. Each run updates the branch with a README,
-`index.html`, the latest report, avatar, and player assets. If Higgsfield media
+`index.html`, the latest report, avatar, and player assets. If generated media
 is enabled and succeeds, the generated keyframe image and MP4 are committed to
 the same branch and linked from the PR review.
 
 Set `media.publish_media_branch: false` in `.github/senpai.yml` if you do not
 want Merge Senpai to maintain that branch.
 
-## Optional Higgsfield Media
+## Media Providers
+
+Merge Senpai's media layer is provider-neutral:
+
+```yaml
+media:
+  media_provider: off      # off | static | higgsfield | ltx-local
+  media_runner_label: ubuntu-24.04
+  publish_media_branch: true
+  storage_branch: senpai-media
+```
+
+`static` and `off` never generate a video; the HTML review card is still
+published when `publish_media_branch` is true.
+
+### Higgsfield
 
 Higgsfield media is opt-in per repository. Add these repository secrets in the
 installed repository:
@@ -90,7 +137,7 @@ gh secret set HIGGS_KEY_ID
 gh secret set HIGGS_API_SECRET
 ```
 
-Then set `media.higgsfield_video: true` in `.github/senpai.yml`. Merge Senpai
+Then set `media.media_provider: higgsfield` in `.github/senpai.yml`. Merge Senpai
 asks Codex for sanitized media prompts, calls Higgsfield Soul text-to-image to
 create a keyframe, calls Higgsfield DoP image-to-video with that keyframe, and
 commits the resulting assets to `senpai-media`.
@@ -124,9 +171,39 @@ Higgsfield CLI. The CLI is useful for model discovery, but it uses interactive
 `higgsfield auth login` and exposes `job_set_type` names that are not guaranteed
 to be identical to Cloud API endpoint strings.
 
-Template installs keep this off by default. Public demo repos can enable it;
-private repos must also set `media.higgsfield_private: true` before any
-Higgsfield prompt is sent.
+Template installs keep this off by default. Public demo repos can enable it.
+Private repos should treat Higgsfield as prompt egress to a second vendor and
+enable it only deliberately.
+
+### LTX Local
+
+`media.media_provider: ltx-local` is for repositories with a prewarmed
+self-hosted GPU runner or a local model wrapper command. It is not enabled by
+default and should not download model weights in ordinary PR CI.
+
+Recommended config:
+
+```yaml
+media:
+  media_provider: ltx-local
+  media_runner_label: '["self-hosted","gpu","ltx"]'
+  ltx_model_dir: /opt/models/ltx-2.3
+  ltx_command: /opt/merge-senpai/bin/run-ltx
+  ltx_args_json: "[]"
+```
+
+The runner command receives:
+
+- `SENPAI_LTX_REQUEST_JSON`: provider-neutral media request.
+- `SENPAI_VIDEO_OUTPUT`: MP4 path it must write.
+- `SENPAI_IMAGE_OUTPUT_BASE`: optional keyframe output prefix.
+- `SENPAI_LTX_MODEL_DIR`: configured model directory.
+
+The workflow fails closed for unsafe self-hosted states. Public repositories and
+fork PRs do not get direct self-hosted model jobs by default. For public repos,
+the safer local-compute pattern is a user-owned model endpoint or queue called
+from a GitHub-hosted workflow with bounded JSON artifacts, not a self-hosted
+Actions runner that executes arbitrary PR workflows.
 
 Merge Senpai does not upload dynamic GitHub comment attachments. GitHub supports
 human drag-and-drop attachments in the browser, but the documented PR/comment
@@ -179,5 +256,7 @@ files under `templates/` directly:
 templates/.github/workflows/merge-senpai.yml
 templates/.github/senpai.yml
 templates/.github/merge-senpai/player.html
+templates/.github/merge-senpai/generate-media.mjs
 templates/.github/merge-senpai/generate-higgsfield-video.mjs
+templates/.github/merge-senpai/run-local-review.mjs
 ```
