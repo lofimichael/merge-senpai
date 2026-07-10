@@ -11,9 +11,11 @@ Install the Merge Senpai GitHub App on the repositories you want reviewed. The
 app writes the static setup files into each installed repository:
 
 - `.github/workflows/merge-senpai.yml`
+- `.github/workflows/merge-senpai-local-probe.yml`
 - `.github/senpai.yml`
 - `.github/merge-senpai/avatar.png`
 - `.github/merge-senpai/player.html`
+- `.github/merge-senpai/probe-local-models.mjs`
 - `.github/merge-senpai/generate-media.mjs`
 - `.github/merge-senpai/generate-higgsfield-video.mjs`
 - `.github/merge-senpai/run-local-review.mjs`
@@ -191,6 +193,11 @@ media:
   media_provider: ltx-local
   media_runner_label: '["self-hosted","gpu","ltx"]'
   ltx_model_dir: /opt/models/ltx-2.3
+  ltx_cache_dir: /opt/models/.cache
+  ltx_required_files: '["model.safetensors"]'
+  ltx_require_gpu: true
+  ltx_probe_command: /opt/merge-senpai/bin/probe-ltx
+  ltx_probe_args_json: "[]"
   ltx_command: /opt/merge-senpai/bin/run-ltx
   ltx_args_json: "[]"
 ```
@@ -201,6 +208,17 @@ The runner command receives:
 - `SENPAI_VIDEO_OUTPUT`: MP4 path it must write.
 - `SENPAI_IMAGE_OUTPUT_BASE`: optional keyframe output prefix.
 - `SENPAI_LTX_MODEL_DIR`: configured model directory.
+- `SENPAI_LTX_CACHE_DIR`, `HF_HOME`, `HUGGINGFACE_HUB_CACHE`,
+  `TRANSFORMERS_CACHE`, `DIFFUSERS_CACHE`, and `XDG_CACHE_HOME`: cache paths
+  selected by Merge Senpai from the configured or existing runner cache.
+
+Run `Merge Senpai Local Model Probe` manually after configuring `ltx-local`. It
+first resolves `.github/senpai.yml` on a GitHub-hosted runner, then schedules a
+self-hosted probe only when `media_provider: ltx-local`, `media_runner_label`
+is self-hosted, and the repository safety state is valid. The probe checks GPU
+presence, model directory, optional required files, cache reuse/initialization,
+and the optional probe command. It does not require an extra environment
+variable to enable.
 
 The workflow fails closed for unsafe self-hosted states. Public repositories and
 fork PRs do not get direct self-hosted model jobs by default. For public repos,
@@ -257,8 +275,10 @@ files under `templates/` directly:
 
 ```bash
 templates/.github/workflows/merge-senpai.yml
+templates/.github/workflows/merge-senpai-local-probe.yml
 templates/.github/senpai.yml
 templates/.github/merge-senpai/player.html
+templates/.github/merge-senpai/probe-local-models.mjs
 templates/.github/merge-senpai/generate-media.mjs
 templates/.github/merge-senpai/generate-higgsfield-video.mjs
 templates/.github/merge-senpai/run-local-review.mjs

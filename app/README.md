@@ -24,6 +24,9 @@ Cloudflare Worker that receives GitHub App webhooks and dispatches the installed
 - Repositories can opt into local structured-output review providers or local
   media generation, but the installed workflow default-denies unsafe
   self-hosted runner states.
+- The optional local model probe workflow is config-driven from
+  `.github/senpai.yml`; it schedules a self-hosted probe only for valid
+  `ltx-local` self-hosted media configurations.
 
 ## Credentials
 

@@ -37,7 +37,9 @@ describe("webhook helpers", () => {
 
 describe("setup payload", () => {
   it("installs the generic media and local review helpers", () => {
+    assert.ok(SETUP_FILES.includes(".github/workflows/merge-senpai-local-probe.yml"));
     assert.ok(SETUP_FILES.includes(".github/merge-senpai/generate-media.mjs"));
+    assert.ok(SETUP_FILES.includes(".github/merge-senpai/probe-local-models.mjs"));
     assert.ok(SETUP_FILES.includes(".github/merge-senpai/run-local-review.mjs"));
   });
 });

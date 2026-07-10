@@ -4,9 +4,11 @@ const DISPATCH_PERMISSIONS = new Set(["write", "admin"]);
 const DEFAULT_TEMPLATE_BASE_URL = "https://raw.githubusercontent.com/lofimichael/merge-senpai/main";
 const SETUP_FILES = [
   ".github/workflows/merge-senpai.yml",
+  ".github/workflows/merge-senpai-local-probe.yml",
   ".github/senpai.yml",
   ".github/merge-senpai/avatar.png",
   ".github/merge-senpai/player.html",
+  ".github/merge-senpai/probe-local-models.mjs",
   ".github/merge-senpai/generate-media.mjs",
   ".github/merge-senpai/generate-higgsfield-video.mjs",
   ".github/merge-senpai/run-local-review.mjs",

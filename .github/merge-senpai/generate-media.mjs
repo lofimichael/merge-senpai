@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { probeLocalModels } from "./probe-local-models.mjs";
 
 const runnerTemp = process.env.RUNNER_TEMP || process.cwd();
 const reviewPath = process.env.SENPAI_REVIEW_JSON || path.join(runnerTemp, "senpai-review.json");
@@ -184,7 +185,7 @@ async function runHiggsfield() {
 async function runLtxLocal(review) {
   const provider = "ltx-local";
   const safetyVerdict = getEnv("SENPAI_SELF_HOSTED_SAFETY_VERDICT", "denied");
-  if (safetyVerdict !== "allowed" && !envFlag("SENPAI_LTX_ALLOW_UNSAFE", false)) {
+  if (safetyVerdict !== "allowed") {
     skip(provider, `self-hosted safety verdict is ${safetyVerdict || "missing"}`);
     return;
   }
@@ -192,15 +193,17 @@ async function runLtxLocal(review) {
   const modelDir = getEnv("SENPAI_LTX_MODEL_DIR", "/opt/models/ltx-2.3");
   const command = getEnv("SENPAI_LTX_COMMAND");
   const args = parseArgsJson(getEnv("SENPAI_LTX_ARGS_JSON", "[]"));
-  const skipGpuCheck = envFlag("SENPAI_LTX_SKIP_GPU_CHECK", false);
-  const skipModelCheck = envFlag("SENPAI_LTX_SKIP_MODEL_CHECK", false);
 
-  if (!skipGpuCheck && !commandExists("nvidia-smi")) {
-    skip(provider, "nvidia-smi is not available on this runner");
-    return;
-  }
-  if (!skipModelCheck && !fs.existsSync(modelDir)) {
-    skip(provider, `model directory does not exist: ${modelDir}`);
+  const probe = await probeLocalModels({
+    provider,
+    safetyVerdict,
+    modelDir,
+    configureEnv: true,
+  });
+  if (!probe.ready) {
+    skip(provider, probe.reason || "local model probe was not ready", {
+      probe,
+    });
     return;
   }
   if (!command) {
@@ -244,6 +247,7 @@ async function runLtxLocal(review) {
   }
 
   await runCommand(command, args, {
+    ...(probe.env || {}),
     SENPAI_LTX_REQUEST_JSON: ltxRequestPath,
     SENPAI_VIDEO_OUTPUT: videoOutputPath,
     SENPAI_IMAGE_OUTPUT_BASE: imageOutputBase,

@@ -46,6 +46,11 @@ media:
   higgsfield_aspect_ratio: 9:16
   higgsfield_private: false
   ltx_model_dir: /opt/models/ltx-2.3
+  ltx_cache_dir: ""
+  ltx_required_files: "[]"
+  ltx_require_gpu: true
+  ltx_probe_command: ""
+  ltx_probe_args_json: "[]"
   ltx_command: ""
   ltx_args_json: "[]"
   ltx_seconds: 5

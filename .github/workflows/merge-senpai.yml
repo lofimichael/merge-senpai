@@ -54,6 +54,11 @@ jobs:
       higgsfield_max_poll_ms: ${{ steps.resolve.outputs.higgsfield_max_poll_ms }}
       higgsfield_private: ${{ steps.resolve.outputs.higgsfield_private }}
       ltx_model_dir: ${{ steps.resolve.outputs.ltx_model_dir }}
+      ltx_cache_dir: ${{ steps.resolve.outputs.ltx_cache_dir }}
+      ltx_required_files: ${{ steps.resolve.outputs.ltx_required_files }}
+      ltx_require_gpu: ${{ steps.resolve.outputs.ltx_require_gpu }}
+      ltx_probe_command: ${{ steps.resolve.outputs.ltx_probe_command }}
+      ltx_probe_args_json: ${{ steps.resolve.outputs.ltx_probe_args_json }}
       ltx_command: ${{ steps.resolve.outputs.ltx_command }}
       ltx_args_json: ${{ steps.resolve.outputs.ltx_args_json }}
       ltx_seconds: ${{ steps.resolve.outputs.ltx_seconds }}
@@ -82,7 +87,6 @@ jobs:
           LOCAL_REVIEW_MODEL_VAR: ${{ vars.MERGE_SENPAI_LOCAL_REVIEW_MODEL }}
           REVIEW_RUNNER_VAR: ${{ vars.MERGE_SENPAI_REVIEW_RUNNER }}
           MEDIA_RUNNER_VAR: ${{ vars.MERGE_SENPAI_MEDIA_RUNNER }}
-          ALLOW_PUBLIC_SELF_HOSTED_VAR: ${{ vars.MERGE_SENPAI_ALLOW_PUBLIC_SELF_HOSTED }}
           SENPAI_HIGGSFIELD_IMAGE_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_IMAGE_ENDPOINT }}
           SENPAI_HIGGSFIELD_VIDEO_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_VIDEO_ENDPOINT }}
           SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT }}
@@ -260,8 +264,7 @@ jobs:
             const selfHosted = isSelfHosted(runnerLabel);
             if (!selfHosted) return { verdict: "allowed", selfHosted: false, reason: "hosted_runner" };
 
-            const allowPublic = boolValue(configValue(`allow_public_${kind}_self_hosted`), false) ||
-              boolValue(process.env.ALLOW_PUBLIC_SELF_HOSTED_VAR, false);
+            const allowPublic = boolValue(configValue(`allow_public_${kind}_self_hosted`), false);
             if (process.env.HEAD_REPO !== process.env.GITHUB_REPOSITORY) {
               return { verdict: "denied", selfHosted: true, reason: "fork_pr" };
             }
@@ -305,6 +308,11 @@ jobs:
             configValue("higgsfield_max_poll_ms", "480000");
           const higgsfieldPrivate = configValue("higgsfield_private", "false");
           const ltxModelDir = process.env.SENPAI_LTX_MODEL_DIR_VAR || configValue("ltx_model_dir", "/opt/models/ltx-2.3");
+          const ltxCacheDir = configValue("ltx_cache_dir", "");
+          const ltxRequiredFiles = configValue("ltx_required_files", "[]");
+          const ltxRequireGpu = configValue("ltx_require_gpu", "true");
+          const ltxProbeCommand = configValue("ltx_probe_command", "");
+          const ltxProbeArgsJson = configValue("ltx_probe_args_json", "[]");
           const ltxCommand = process.env.SENPAI_LTX_COMMAND_VAR || configValue("ltx_command", "");
           const ltxArgsJson = process.env.SENPAI_LTX_ARGS_JSON_VAR || configValue("ltx_args_json", "[]");
           const ltxSeconds = process.env.SENPAI_LTX_SECONDS_VAR || configValue("ltx_seconds", mediaDuration);
@@ -356,6 +364,11 @@ jobs:
           output("higgsfield_max_poll_ms", higgsfieldMaxPollMs);
           output("higgsfield_private", higgsfieldPrivate);
           output("ltx_model_dir", ltxModelDir);
+          output("ltx_cache_dir", ltxCacheDir);
+          output("ltx_required_files", ltxRequiredFiles);
+          output("ltx_require_gpu", ltxRequireGpu);
+          output("ltx_probe_command", ltxProbeCommand);
+          output("ltx_probe_args_json", ltxProbeArgsJson);
           output("ltx_command", ltxCommand);
           output("ltx_args_json", ltxArgsJson);
           output("ltx_seconds", ltxSeconds);
@@ -757,6 +770,11 @@ jobs:
           SENPAI_HIGGSFIELD_MAX_POLL_MS: ${{ needs.resolve.outputs.higgsfield_max_poll_ms }}
           SENPAI_HIGGSFIELD_PRIVATE: ${{ needs.resolve.outputs.higgsfield_private }}
           SENPAI_LTX_MODEL_DIR: ${{ needs.resolve.outputs.ltx_model_dir }}
+          SENPAI_LTX_CACHE_DIR: ${{ needs.resolve.outputs.ltx_cache_dir }}
+          SENPAI_LTX_REQUIRED_FILES: ${{ needs.resolve.outputs.ltx_required_files }}
+          SENPAI_LTX_REQUIRE_GPU: ${{ needs.resolve.outputs.ltx_require_gpu }}
+          SENPAI_LTX_PROBE_COMMAND: ${{ needs.resolve.outputs.ltx_probe_command }}
+          SENPAI_LTX_PROBE_ARGS_JSON: ${{ needs.resolve.outputs.ltx_probe_args_json }}
           SENPAI_LTX_COMMAND: ${{ needs.resolve.outputs.ltx_command }}
           SENPAI_LTX_ARGS_JSON: ${{ needs.resolve.outputs.ltx_args_json }}
           SENPAI_LTX_SECONDS: ${{ needs.resolve.outputs.ltx_seconds }}
