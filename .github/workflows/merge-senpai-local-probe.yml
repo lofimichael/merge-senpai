@@ -1,0 +1,197 @@
+name: Merge Senpai Local Model Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-senpai-local-probe
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: resolve
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.resolve.outputs.enabled }}
+      skip_reason: ${{ steps.resolve.outputs.skip_reason }}
+      runs_on: ${{ steps.resolve.outputs.runs_on }}
+      ltx_model_dir: ${{ steps.resolve.outputs.ltx_model_dir }}
+      ltx_cache_dir: ${{ steps.resolve.outputs.ltx_cache_dir }}
+      ltx_required_files: ${{ steps.resolve.outputs.ltx_required_files }}
+      ltx_require_gpu: ${{ steps.resolve.outputs.ltx_require_gpu }}
+      ltx_probe_command: ${{ steps.resolve.outputs.ltx_probe_command }}
+      ltx_probe_args_json: ${{ steps.resolve.outputs.ltx_probe_args_json }}
+    steps:
+      - name: Checkout trusted config
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Resolve local probe config
+        id: resolve
+        env:
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("fs");
+          const config = fs.existsSync(".github/senpai.yml")
+            ? fs.readFileSync(".github/senpai.yml", "utf8")
+            : "";
+          const out = process.env.GITHUB_OUTPUT;
+
+          function output(name, value) {
+            fs.appendFileSync(out, `${name}=${String(value ?? "").replace(/\n/g, " ")}\n`);
+          }
+          function configValue(name, fallback = "") {
+            const pattern = new RegExp(`^\\s{0,2}${name}:\\s*(.*)$`);
+            for (const line of config.split(/\n/)) {
+              const match = line.match(pattern);
+              if (!match) continue;
+              let value = match[1].replace(/\s+#.*$/, "").trim();
+              if (
+                (value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))
+              ) {
+                value = value.slice(1, -1);
+              }
+              return value.trim();
+            }
+            return fallback;
+          }
+          function boolValue(value, fallback = false) {
+            if (value == null || value === "") return fallback;
+            return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+          }
+          function runsOnJson(value, fallback = "ubuntu-24.04") {
+            const raw = String(value || fallback).trim();
+            if (raw.startsWith("[") || raw.startsWith("{")) {
+              JSON.parse(raw);
+              return raw;
+            }
+            if (raw.includes(",")) {
+              return JSON.stringify(raw.split(",").map((part) => part.trim()).filter(Boolean));
+            }
+            return JSON.stringify(raw);
+          }
+          function flattenRunsOn(value) {
+            const parsed = JSON.parse(runsOnJson(value));
+            return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+          }
+          function isSelfHosted(value) {
+            const hosted = new Set([
+              "ubuntu-latest",
+              "ubuntu-24.04",
+              "ubuntu-22.04",
+              "windows-latest",
+              "macos-latest",
+              "macos-14",
+              "macos-15",
+            ]);
+            const labels = flattenRunsOn(value).map((label) => label.toLowerCase());
+            return labels.includes("self-hosted") || labels.some((label) => !hosted.has(label));
+          }
+
+          let mediaProvider = configValue("media_provider", "");
+          if (!mediaProvider && boolValue(configValue("higgsfield_video"), false)) mediaProvider = "higgsfield";
+          if (!mediaProvider) mediaProvider = "off";
+          if (mediaProvider === "ltx") mediaProvider = "ltx-local";
+          const mediaRunner = configValue("media_runner_label", mediaProvider === "ltx-local" ? '["self-hosted","gpu","ltx"]' : "ubuntu-24.04");
+          const selfHosted = isSelfHosted(mediaRunner);
+          const allowPublic = boolValue(configValue("allow_public_media_self_hosted"), false);
+          const repositoryPrivate = process.env.REPOSITORY_PRIVATE === "true";
+
+          let enabled = true;
+          let skipReason = "";
+          if (mediaProvider !== "ltx-local") {
+            enabled = false;
+            skipReason = `media_provider is ${mediaProvider}, not ltx-local`;
+          } else if (!selfHosted) {
+            enabled = false;
+            skipReason = "media_runner_label does not resolve to a self-hosted runner";
+          } else if (!repositoryPrivate && !allowPublic) {
+            enabled = false;
+            skipReason = "public repository local self-hosted media probe is disabled by config";
+          }
+
+          output("enabled", enabled ? "true" : "false");
+          output("skip_reason", skipReason);
+          output("runs_on", runsOnJson(mediaRunner));
+          output("ltx_model_dir", configValue("ltx_model_dir", "/opt/models/ltx-2.3"));
+          output("ltx_cache_dir", configValue("ltx_cache_dir", ""));
+          output("ltx_required_files", configValue("ltx_required_files", "[]"));
+          output("ltx_require_gpu", configValue("ltx_require_gpu", "true"));
+          output("ltx_probe_command", configValue("ltx_probe_command", ""));
+          output("ltx_probe_args_json", configValue("ltx_probe_args_json", "[]"));
+          NODE
+
+      - name: Report skipped probe
+        if: steps.resolve.outputs.enabled != 'true'
+        env:
+          SKIP_REASON: ${{ steps.resolve.outputs.skip_reason }}
+        run: |
+          {
+            echo "## Merge Senpai Local Model Probe"
+            echo
+            echo "Skipped: $SKIP_REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  probe:
+    name: probe
+    needs: resolve
+    if: needs.resolve.outputs.enabled == 'true'
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runs_on) }}
+    steps:
+      - name: Checkout trusted probe scripts
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Probe local model cache
+        id: probe
+        continue-on-error: true
+        env:
+          SENPAI_MEDIA_PROVIDER: ltx-local
+          SENPAI_SELF_HOSTED_SAFETY_VERDICT: allowed
+          SENPAI_LTX_MODEL_DIR: ${{ needs.resolve.outputs.ltx_model_dir }}
+          SENPAI_LTX_CACHE_DIR: ${{ needs.resolve.outputs.ltx_cache_dir }}
+          SENPAI_LTX_REQUIRED_FILES: ${{ needs.resolve.outputs.ltx_required_files }}
+          SENPAI_LTX_REQUIRE_GPU: ${{ needs.resolve.outputs.ltx_require_gpu }}
+          SENPAI_LTX_PROBE_COMMAND: ${{ needs.resolve.outputs.ltx_probe_command }}
+          SENPAI_LTX_PROBE_ARGS_JSON: ${{ needs.resolve.outputs.ltx_probe_args_json }}
+        run: node .github/merge-senpai/probe-local-models.mjs --strict
+
+      - name: Upload probe metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-senpai-local-model-probe
+          path: ${{ runner.temp }}/senpai-local-model-probe.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summarize probe
+        if: always()
+        env:
+          READY: ${{ steps.probe.outputs.ready }}
+          CACHE_DIR: ${{ steps.probe.outputs.cache_dir }}
+          CACHE_REUSED: ${{ steps.probe.outputs.cache_reused }}
+          REASON: ${{ steps.probe.outputs.reason }}
+        run: |
+          {
+            echo "## Merge Senpai Local Model Probe"
+            echo
+            echo "- Ready: \`${READY:-false}\`"
+            echo "- Cache dir: \`${CACHE_DIR:-unavailable}\`"
+            echo "- Cache reused: \`${CACHE_REUSED:-false}\`"
+            echo "- Result: ${REASON:-unavailable}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if probe failed
+        if: steps.probe.outcome != 'success'
+        run: exit 1

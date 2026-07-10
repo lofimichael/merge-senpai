@@ -14,6 +14,14 @@ repositories by default. The workflow prepares bounded PR artifacts on
 GitHub-hosted Ubuntu, then passes validated JSON to review/media providers so
 local GPU jobs do not need to checkout untrusted PR code.
 
+2026-07-10 follow-up: local model readiness is now probed through a config-only
+`merge-senpai-local-probe.yml` workflow and the same probe is reused before
+`ltx-local` media generation. It checks GPU presence, model directory,
+optional required files, cache directory reuse/initialization, and an optional
+probe command. It exports standard local-model cache variables (`HF_HOME`,
+`HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `DIFFUSERS_CACHE`,
+`XDG_CACHE_HOME`) to the local generation process.
+
 2026-07-08 update: the canonical path is a BYOK workflow installed in the target
 repository plus a Cloudflare Worker GitHub App dispatcher. The install payload
 lives as static files in `templates/`; the Worker copies missing files into each
