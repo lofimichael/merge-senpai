@@ -20,7 +20,10 @@ Cloudflare Worker that receives GitHub App webhooks and dispatches the installed
   permission through GitHub before dispatching. Only write/admin-class access can
   trigger secret-backed workflows.
 - The target repository still needs `MERGE_SENPAI_OPENAI_KEY` configured as a
-  GitHub Actions secret.
+  GitHub Actions secret when using the default `codex-openai` review provider.
+- Repositories can opt into local structured-output review providers or local
+  media generation, but the installed workflow default-denies unsafe
+  self-hosted runner states.
 
 ## Credentials
 
@@ -37,6 +40,10 @@ The Worker does not set `MERGE_SENPAI_OPENAI_KEY` because it does not know the
 user's OpenAI key. A setup page could collect and write that secret through the
 GitHub Actions Secrets API later, but the current product keeps key entry inside
 the user's repository settings or `gh secret set`.
+
+For local review, the Worker also does not set
+`MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT` or `MERGE_SENPAI_LOCAL_REVIEW_API_KEY`.
+Those remain repository-owned secrets or variables.
 
 Automatic setup writes directly to the repository default branch. Repositories
 with branch protection that blocks GitHub App commits may need to allow this app

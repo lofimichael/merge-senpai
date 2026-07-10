@@ -21,16 +21,48 @@ concurrency:
 env:
   SENPAI_BRAND: Merge Senpai
   SENPAI_DEFAULT_MODEL: gpt-5.3-codex
-  SENPAI_MODEL: gpt-5.3-codex
 
 jobs:
-  review:
-    name: review
+  resolve:
+    name: resolve
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+      pull-requests: read
       issues: write
+    outputs:
+      pr_number: ${{ steps.resolve.outputs.pr_number }}
+      base_ref: ${{ steps.resolve.outputs.base_ref }}
+      head_ref: ${{ steps.resolve.outputs.head_ref }}
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      head_repo: ${{ steps.resolve.outputs.head_repo }}
+      review_enabled: ${{ steps.resolve.outputs.review_enabled }}
+      skip_reason: ${{ steps.resolve.outputs.skip_reason }}
+      review_provider: ${{ steps.resolve.outputs.review_provider }}
+      review_model: ${{ steps.resolve.outputs.review_model }}
+      review_runs_on: ${{ steps.resolve.outputs.review_runs_on }}
+      local_review_endpoint: ${{ steps.resolve.outputs.local_review_endpoint }}
+      local_review_model: ${{ steps.resolve.outputs.local_review_model }}
+      media_enabled: ${{ steps.resolve.outputs.media_enabled }}
+      media_provider: ${{ steps.resolve.outputs.media_provider }}
+      media_runs_on: ${{ steps.resolve.outputs.media_runs_on }}
+      media_duration: ${{ steps.resolve.outputs.media_duration }}
+      higgsfield_image_endpoint: ${{ steps.resolve.outputs.higgsfield_image_endpoint }}
+      higgsfield_video_endpoint: ${{ steps.resolve.outputs.higgsfield_video_endpoint }}
+      higgsfield_fallback_image_endpoint: ${{ steps.resolve.outputs.higgsfield_fallback_image_endpoint }}
+      higgsfield_fallback_video_endpoint: ${{ steps.resolve.outputs.higgsfield_fallback_video_endpoint }}
+      higgsfield_max_poll_ms: ${{ steps.resolve.outputs.higgsfield_max_poll_ms }}
+      higgsfield_private: ${{ steps.resolve.outputs.higgsfield_private }}
+      ltx_model_dir: ${{ steps.resolve.outputs.ltx_model_dir }}
+      ltx_command: ${{ steps.resolve.outputs.ltx_command }}
+      ltx_args_json: ${{ steps.resolve.outputs.ltx_args_json }}
+      ltx_seconds: ${{ steps.resolve.outputs.ltx_seconds }}
+      ltx_fps: ${{ steps.resolve.outputs.ltx_fps }}
+      ltx_width: ${{ steps.resolve.outputs.ltx_width }}
+      ltx_height: ${{ steps.resolve.outputs.ltx_height }}
+      publish_media_branch: ${{ steps.resolve.outputs.publish_media_branch }}
+      storage_branch: ${{ steps.resolve.outputs.storage_branch }}
+      self_hosted_safety_verdict: ${{ steps.resolve.outputs.self_hosted_safety_verdict }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -38,77 +70,56 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Resolve pull request context
-        id: ctx
+      - name: Resolve pull request, config, and prompt
+        id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER_INPUT: ${{ inputs.pr_number }}
+          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          OPENAI_KEY_PRESENT: ${{ secrets.MERGE_SENPAI_OPENAI_KEY != '' }}
+          LOCAL_REVIEW_ENDPOINT_SECRET_PRESENT: ${{ secrets.MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT != '' }}
+          LOCAL_REVIEW_ENDPOINT_VAR: ${{ vars.MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT }}
+          LOCAL_REVIEW_MODEL_VAR: ${{ vars.MERGE_SENPAI_LOCAL_REVIEW_MODEL }}
+          REVIEW_RUNNER_VAR: ${{ vars.MERGE_SENPAI_REVIEW_RUNNER }}
+          MEDIA_RUNNER_VAR: ${{ vars.MERGE_SENPAI_MEDIA_RUNNER }}
+          ALLOW_PUBLIC_SELF_HOSTED_VAR: ${{ vars.MERGE_SENPAI_ALLOW_PUBLIC_SELF_HOSTED }}
+          SENPAI_HIGGSFIELD_IMAGE_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_IMAGE_ENDPOINT }}
+          SENPAI_HIGGSFIELD_VIDEO_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_VIDEO_ENDPOINT }}
+          SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT }}
+          SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT_VAR: ${{ vars.SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT }}
+          SENPAI_HIGGSFIELD_MAX_POLL_MS_VAR: ${{ vars.SENPAI_HIGGSFIELD_MAX_POLL_MS }}
+          SENPAI_LTX_MODEL_DIR_VAR: ${{ vars.SENPAI_LTX_MODEL_DIR }}
+          SENPAI_LTX_COMMAND_VAR: ${{ vars.SENPAI_LTX_COMMAND }}
+          SENPAI_LTX_ARGS_JSON_VAR: ${{ vars.SENPAI_LTX_ARGS_JSON }}
+          SENPAI_LTX_SECONDS_VAR: ${{ vars.SENPAI_LTX_SECONDS }}
+          SENPAI_LTX_FPS_VAR: ${{ vars.SENPAI_LTX_FPS }}
+          SENPAI_LTX_WIDTH_VAR: ${{ vars.SENPAI_LTX_WIDTH }}
+          SENPAI_LTX_HEIGHT_VAR: ${{ vars.SENPAI_LTX_HEIGHT }}
         run: |
           set -euo pipefail
-          PR_NUMBER="${{ inputs.pr_number }}"
+          PR_NUMBER="$PR_NUMBER_INPUT"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
           BASE_REF="$(jq -r '.base.ref' "$RUNNER_TEMP/pr.json")"
           HEAD_REF="$(jq -r '.head.ref' "$RUNNER_TEMP/pr.json")"
           HEAD_SHA="$(jq -r '.head.sha' "$RUNNER_TEMP/pr.json")"
           HEAD_REPO="$(jq -r '.head.repo.full_name' "$RUNNER_TEMP/pr.json")"
+          AUTHOR_ASSOCIATION="$(jq -r '.author_association // ""' "$RUNNER_TEMP/pr.json")"
+          export PR_NUMBER BASE_REF HEAD_REF HEAD_SHA HEAD_REPO AUTHOR_ASSOCIATION
 
-          {
-            echo "PR_NUMBER=$PR_NUMBER"
-            echo "BASE_REF=$BASE_REF"
-            echo "HEAD_REF=$HEAD_REF"
-            echo "HEAD_SHA=$HEAD_SHA"
-            echo "HEAD_REPO=$HEAD_REPO"
-          } >> "$GITHUB_ENV"
-
-      - name: Gate secret-backed review
-        id: gate
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          enabled=true
-          reason=""
-
-          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
-            enabled=false
-            reason="Merge Senpai skipped this fork PR because GitHub does not pass repository secrets to fork-triggered workflows. Ask a maintainer to run a trusted same-repo review if needed."
-          elif [ "${{ secrets.MERGE_SENPAI_OPENAI_KEY != '' }}" != "true" ]; then
-            enabled=false
-            reason="Merge Senpai is installed, but MERGE_SENPAI_OPENAI_KEY is not configured yet."
-          fi
-
-          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
-
-          if [ "$enabled" != "true" ]; then
-            {
-              echo "## Merge Senpai"
-              echo
-              echo "$reason"
-            } > "$RUNNER_TEMP/senpai-skip.md"
-            gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-skip.md" || true
-            cat "$RUNNER_TEMP/senpai-skip.md" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Checkout pull request merge
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          set -euo pipefail
           git fetch origin "$BASE_REF" --depth=1 || true
+          git show "origin/$BASE_REF:.github/senpai.yml" > "$RUNNER_TEMP/base-senpai.yml" 2>/dev/null || cp .github/senpai.yml "$RUNNER_TEMP/base-senpai.yml"
+
           git fetch origin "refs/pull/$PR_NUMBER/merge:refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || true
           git fetch origin "refs/pull/$PR_NUMBER/head:refs/remotes/origin/senpai-pr-$PR_NUMBER" || true
           git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER"
 
-      - name: Prepare Codex review prompt
-        if: steps.gate.outputs.enabled == 'true'
-        run: |
-          set -euo pipefail
-          git show "origin/$BASE_REF:.github/senpai.yml" > "$RUNNER_TEMP/base-senpai.yml" 2>/dev/null || cp .github/senpai.yml "$RUNNER_TEMP/base-senpai.yml"
-          MODEL="$(sed -n -E 's/^model:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
-          echo "SENPAI_MODEL=${MODEL:-$SENPAI_DEFAULT_MODEL}" >> "$GITHUB_ENV"
+          git diff --unified=80 "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || git diff --unified=80 HEAD~1...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || true
+          git diff --stat "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.stat" 2>/dev/null || true
 
           cat > "$RUNNER_TEMP/senpai.schema.json" <<'JSON'
           {
             "type": "object",
-            "additionalProperties": false,
+            "additionalProperties": true,
             "required": ["verdict", "grade", "summary", "persona_line", "briefing_script", "image_prompt", "video_prompt", "findings"],
             "properties": {
               "verdict": { "type": "string", "enum": ["clean", "comment", "request_changes"] },
@@ -118,6 +129,17 @@ jobs:
               "briefing_script": { "type": "string" },
               "image_prompt": { "type": "string" },
               "video_prompt": { "type": "string" },
+              "media_plan": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                  "title": { "type": "string" },
+                  "safe_summary": { "type": "string" },
+                  "story_beats": { "type": "array" },
+                  "negative_prompt": { "type": "string" },
+                  "captions": { "type": "array", "items": { "type": "string" } }
+                }
+              },
               "findings": {
                 "type": "array",
                 "items": {
@@ -138,17 +160,14 @@ jobs:
           }
           JSON
 
-          git diff --unified=80 "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || git diff --unified=80 HEAD~1...HEAD > "$RUNNER_TEMP/pr.diff" 2>/dev/null || true
-          git diff --stat "origin/$BASE_REF"...HEAD > "$RUNNER_TEMP/pr.stat" 2>/dev/null || true
-
           cat > "$RUNNER_TEMP/senpai.prompt.md" <<'PROMPT'
           You are Merge Senpai, a stern but caring CI reviewer.
 
           Review this pull request for correctness, security, data loss, broken tests, migration risk, and surprising behavior. Prefer high-signal findings over style nits.
 
-          Output only JSON matching the provided schema. Persona is allowed only in persona_line, summary, briefing_script, and optionally finding titles. Keep finding messages clinical and actionable.
+          Output only JSON matching the provided schema. Persona is allowed only in persona_line, summary, briefing_script, media_plan, and optionally finding titles. Keep finding messages clinical and actionable.
 
-          Write video_prompt as a short image-to-video motion script for a social recap of the PR review: visual beats, captions, and scene direction. Do not include source code, secrets, URLs, private identifiers, real person likenesses, or brand logos.
+          Write media_plan as provider-neutral story data. It must be safe for local or hosted media renderers: no source code, secrets, URLs, private identifiers, real person likenesses, or brand logos. Captions should be factual and short.
 
           Severity policy:
           - P0: security/data-loss/corruption or guaranteed production breakage.
@@ -168,7 +187,7 @@ jobs:
             echo "Head SHA: $HEAD_SHA"
             echo
             echo "Base-branch Merge Senpai config:"
-            sed -n '1,220p' "$RUNNER_TEMP/base-senpai.yml"
+            sed -n '1,260p' "$RUNNER_TEMP/base-senpai.yml"
             echo
             echo "Diff stat:"
             sed -n '1,160p' "$RUNNER_TEMP/pr.stat"
@@ -177,29 +196,295 @@ jobs:
             head -c 120000 "$RUNNER_TEMP/pr.diff"
           } >> "$RUNNER_TEMP/senpai.prompt.md"
 
+          node <<'NODE'
+          const fs = require("fs");
+
+          const config = fs.readFileSync(`${process.env.RUNNER_TEMP}/base-senpai.yml`, "utf8");
+          const out = process.env.GITHUB_OUTPUT;
+
+          function output(name, value) {
+            fs.appendFileSync(out, `${name}=${String(value ?? "").replace(/\n/g, " ")}\n`);
+          }
+          function configValue(name, fallback = "") {
+            const pattern = new RegExp(`^\\s{0,2}${name}:\\s*(.*)$`);
+            for (const line of config.split(/\n/)) {
+              const match = line.match(pattern);
+              if (!match) continue;
+              let value = match[1].replace(/\s+#.*$/, "").trim();
+              if (
+                (value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))
+              ) {
+                value = value.slice(1, -1);
+              }
+              return value.trim();
+            }
+            return fallback;
+          }
+          function boolValue(value, fallback = false) {
+            if (value == null || value === "") return fallback;
+            return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+          }
+          function runsOnJson(value, fallback = "ubuntu-24.04") {
+            const raw = String(value || fallback).trim();
+            if (raw.startsWith("[") || raw.startsWith("{")) {
+              JSON.parse(raw);
+              return raw;
+            }
+            if (raw.includes(",")) {
+              return JSON.stringify(raw.split(",").map((part) => part.trim()).filter(Boolean));
+            }
+            return JSON.stringify(raw);
+          }
+          function flattenRunsOn(value) {
+            const parsed = JSON.parse(runsOnJson(value));
+            return Array.isArray(parsed) ? parsed.map(String) : [String(parsed)];
+          }
+          function isSelfHosted(value) {
+            const hosted = new Set([
+              "ubuntu-latest",
+              "ubuntu-24.04",
+              "ubuntu-22.04",
+              "windows-latest",
+              "macos-latest",
+              "macos-14",
+              "macos-15",
+            ]);
+            const labels = flattenRunsOn(value).map((label) => label.toLowerCase());
+            return labels.includes("self-hosted") || labels.some((label) => !hosted.has(label));
+          }
+          function localReviewProvider(value) {
+            return ["local-vllm", "local-ollama", "local-llama-cpp"].includes(value);
+          }
+          function safetyVerdict(kind, runnerLabel) {
+            const selfHosted = isSelfHosted(runnerLabel);
+            if (!selfHosted) return { verdict: "allowed", selfHosted: false, reason: "hosted_runner" };
+
+            const allowPublic = boolValue(configValue(`allow_public_${kind}_self_hosted`), false) ||
+              boolValue(process.env.ALLOW_PUBLIC_SELF_HOSTED_VAR, false);
+            if (process.env.HEAD_REPO !== process.env.GITHUB_REPOSITORY) {
+              return { verdict: "denied", selfHosted: true, reason: "fork_pr" };
+            }
+            if (process.env.REPOSITORY_PRIVATE !== "true" && !allowPublic) {
+              return { verdict: "denied", selfHosted: true, reason: "public_repo_self_hosted_denied" };
+            }
+            return { verdict: "allowed", selfHosted: true, reason: "explicit_self_hosted_allowed_state" };
+          }
+
+          const reviewProvider = configValue("review_provider", "codex-openai") || "codex-openai";
+          const reviewModel = configValue("model", process.env.SENPAI_DEFAULT_MODEL || "gpt-5.3-codex");
+          const localReviewEndpoint = process.env.LOCAL_REVIEW_ENDPOINT_VAR ||
+            configValue("local_review_endpoint", "");
+          const localReviewEndpointPresent = process.env.LOCAL_REVIEW_ENDPOINT_SECRET_PRESENT === "true" || Boolean(localReviewEndpoint);
+          const localReviewModel = process.env.LOCAL_REVIEW_MODEL_VAR ||
+            configValue("local_review_model", reviewModel);
+          const reviewRunner = process.env.REVIEW_RUNNER_VAR ||
+            configValue("review_runner_label", localReviewProvider(reviewProvider) ? "ubuntu-24.04" : "ubuntu-24.04");
+
+          let mediaProvider = configValue("media_provider", "");
+          const legacyHiggsfield = boolValue(configValue("higgsfield_video"), false);
+          if (!mediaProvider) mediaProvider = legacyHiggsfield ? "higgsfield" : "off";
+          if (mediaProvider === "ltx") mediaProvider = "ltx-local";
+          const mediaRunner = process.env.MEDIA_RUNNER_VAR ||
+            configValue("media_runner_label", mediaProvider === "ltx-local" ? '["self-hosted","gpu","ltx"]' : "ubuntu-24.04");
+
+          const reviewSafety = safetyVerdict("review", reviewRunner);
+          const mediaSafety = safetyVerdict("media", mediaRunner);
+          const storageBranch = configValue("storage_branch", "senpai-media") || "senpai-media";
+          const publishMediaBranch = boolValue(configValue("publish_media_branch"), true);
+          const mediaDuration = configValue("media_duration", configValue("higgsfield_duration", "5")) || "5";
+          const higgsfieldImageEndpoint = process.env.SENPAI_HIGGSFIELD_IMAGE_ENDPOINT_VAR ||
+            configValue("higgsfield_image_endpoint", "higgsfield-ai/soul/standard");
+          const higgsfieldVideoEndpoint = process.env.SENPAI_HIGGSFIELD_VIDEO_ENDPOINT_VAR ||
+            configValue("higgsfield_video_endpoint", "higgsfield-ai/dop/standard");
+          const higgsfieldFallbackImageEndpoint = process.env.SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT_VAR ||
+            configValue("higgsfield_fallback_image_endpoint", "/v1/text2image/soul");
+          const higgsfieldFallbackVideoEndpoint = process.env.SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT_VAR ||
+            configValue("higgsfield_fallback_video_endpoint", "/v1/image2video/dop");
+          const higgsfieldMaxPollMs = process.env.SENPAI_HIGGSFIELD_MAX_POLL_MS_VAR ||
+            configValue("higgsfield_max_poll_ms", "480000");
+          const higgsfieldPrivate = configValue("higgsfield_private", "false");
+          const ltxModelDir = process.env.SENPAI_LTX_MODEL_DIR_VAR || configValue("ltx_model_dir", "/opt/models/ltx-2.3");
+          const ltxCommand = process.env.SENPAI_LTX_COMMAND_VAR || configValue("ltx_command", "");
+          const ltxArgsJson = process.env.SENPAI_LTX_ARGS_JSON_VAR || configValue("ltx_args_json", "[]");
+          const ltxSeconds = process.env.SENPAI_LTX_SECONDS_VAR || configValue("ltx_seconds", mediaDuration);
+          const ltxFps = process.env.SENPAI_LTX_FPS_VAR || configValue("ltx_fps", "25");
+          const ltxWidth = process.env.SENPAI_LTX_WIDTH_VAR || configValue("ltx_width", "720");
+          const ltxHeight = process.env.SENPAI_LTX_HEIGHT_VAR || configValue("ltx_height", "1280");
+
+          let reviewEnabled = true;
+          let skipReason = "";
+          if (process.env.HEAD_REPO !== process.env.GITHUB_REPOSITORY) {
+            reviewEnabled = false;
+            skipReason = "Merge Senpai skipped this fork PR because the workflow is configured for same-repository PRs only.";
+          } else if (reviewProvider === "codex-openai" && process.env.OPENAI_KEY_PRESENT !== "true") {
+            reviewEnabled = false;
+            skipReason = "Merge Senpai is installed, but MERGE_SENPAI_OPENAI_KEY is not configured yet.";
+          } else if (localReviewProvider(reviewProvider) && !localReviewEndpointPresent) {
+            reviewEnabled = false;
+            skipReason = `Merge Senpai local review provider ${reviewProvider} requires MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT.`;
+          } else if (reviewSafety.verdict !== "allowed") {
+            reviewEnabled = false;
+            skipReason = `Merge Senpai skipped ${reviewProvider} because self-hosted review safety is ${reviewSafety.reason}.`;
+          }
+
+          let mediaEnabled = !["off", "none", "false", "static", ""].includes(mediaProvider);
+          if (mediaProvider === "ltx-local" && mediaSafety.verdict !== "allowed") {
+            mediaEnabled = false;
+          }
+
+          output("pr_number", process.env.PR_NUMBER);
+          output("base_ref", process.env.BASE_REF);
+          output("head_ref", process.env.HEAD_REF);
+          output("head_sha", process.env.HEAD_SHA);
+          output("head_repo", process.env.HEAD_REPO);
+          output("review_enabled", reviewEnabled ? "true" : "false");
+          output("skip_reason", skipReason);
+          output("review_provider", reviewProvider);
+          output("review_model", reviewModel);
+          output("review_runs_on", runsOnJson(reviewRunner));
+          output("local_review_endpoint", localReviewEndpoint);
+          output("local_review_model", localReviewModel);
+          output("media_enabled", mediaEnabled ? "true" : "false");
+          output("media_provider", mediaProvider || "off");
+          output("media_runs_on", runsOnJson(mediaRunner));
+          output("media_duration", mediaDuration);
+          output("higgsfield_image_endpoint", higgsfieldImageEndpoint);
+          output("higgsfield_video_endpoint", higgsfieldVideoEndpoint);
+          output("higgsfield_fallback_image_endpoint", higgsfieldFallbackImageEndpoint);
+          output("higgsfield_fallback_video_endpoint", higgsfieldFallbackVideoEndpoint);
+          output("higgsfield_max_poll_ms", higgsfieldMaxPollMs);
+          output("higgsfield_private", higgsfieldPrivate);
+          output("ltx_model_dir", ltxModelDir);
+          output("ltx_command", ltxCommand);
+          output("ltx_args_json", ltxArgsJson);
+          output("ltx_seconds", ltxSeconds);
+          output("ltx_fps", ltxFps);
+          output("ltx_width", ltxWidth);
+          output("ltx_height", ltxHeight);
+          output("publish_media_branch", publishMediaBranch ? "true" : "false");
+          output("storage_branch", storageBranch);
+          output("self_hosted_safety_verdict", mediaSafety.verdict);
+          output("self_hosted_safety_json", JSON.stringify({
+            repository_private: process.env.REPOSITORY_PRIVATE === "true",
+            head_repo_is_base_repo: process.env.HEAD_REPO === process.env.GITHUB_REPOSITORY,
+            trusted_author_association: ["OWNER", "MEMBER", "COLLABORATOR"].includes(process.env.AUTHOR_ASSOCIATION || ""),
+            review: reviewSafety,
+            media: mediaSafety,
+          }));
+          NODE
+
+      - name: Upload review input bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: merge-senpai-input-pr-${{ steps.resolve.outputs.pr_number }}
+          path: |
+            ${{ runner.temp }}/base-senpai.yml
+            ${{ runner.temp }}/senpai.schema.json
+            ${{ runner.temp }}/senpai.prompt.md
+            ${{ runner.temp }}/pr.stat
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Comment when review is skipped
+        if: steps.resolve.outputs.review_enabled != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.resolve.outputs.pr_number }}
+          SKIP_REASON: ${{ steps.resolve.outputs.skip_reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Merge Senpai"
+            echo
+            echo "$SKIP_REASON"
+          } > "$RUNNER_TEMP/senpai-skip.md"
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-skip.md" || true
+          cat "$RUNNER_TEMP/senpai-skip.md" >> "$GITHUB_STEP_SUMMARY"
+
+  review:
+    name: review
+    needs: resolve
+    if: needs.resolve.outputs.review_enabled == 'true'
+    runs-on: ${{ fromJSON(needs.resolve.outputs.review_runs_on) }}
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    outputs:
+      review_posted: ${{ steps.review_output.outputs.review_posted }}
+    steps:
+      - name: Download review input bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: merge-senpai-input-pr-${{ needs.resolve.outputs.pr_number }}
+          path: ${{ runner.temp }}/senpai-input
+
+      - name: Checkout pull request merge for Codex
+        if: needs.resolve.outputs.review_provider == 'codex-openai'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select pull request merge for Codex
+        if: needs.resolve.outputs.review_provider == 'codex-openai'
+        env:
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          BASE_REF: ${{ needs.resolve.outputs.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF" --depth=1 || true
+          git fetch origin "refs/pull/$PR_NUMBER/merge:refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || true
+          git fetch origin "refs/pull/$PR_NUMBER/head:refs/remotes/origin/senpai-pr-$PR_NUMBER" || true
+          git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER-merge" || git checkout --detach "refs/remotes/origin/senpai-pr-$PR_NUMBER"
+
+      - name: Checkout trusted Merge Senpai scripts for local review
+        if: needs.resolve.outputs.review_provider != 'codex-openai'
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.base_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
       - name: Run Codex review
-        if: steps.gate.outputs.enabled == 'true'
+        if: needs.resolve.outputs.review_provider == 'codex-openai'
         id: codex
         continue-on-error: true
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.MERGE_SENPAI_OPENAI_KEY }}
-          model: ${{ env.SENPAI_MODEL }}
-          prompt-file: ${{ runner.temp }}/senpai.prompt.md
+          model: ${{ needs.resolve.outputs.review_model }}
+          prompt-file: ${{ runner.temp }}/senpai-input/senpai.prompt.md
           output-file: ${{ runner.temp }}/senpai-review.json
           sandbox: read-only
-          codex-args: '["--ephemeral", "--output-schema", "${{ runner.temp }}/senpai.schema.json"]'
+          codex-args: '["--ephemeral", "--output-schema", "${{ runner.temp }}/senpai-input/senpai.schema.json"]'
           allow-bots: true
 
+      - name: Run local structured review
+        if: needs.resolve.outputs.review_provider != 'codex-openai'
+        id: local_review
+        continue-on-error: true
+        env:
+          SENPAI_REVIEW_PROVIDER: ${{ needs.resolve.outputs.review_provider }}
+          SENPAI_LOCAL_REVIEW_ENDPOINT: ${{ secrets.MERGE_SENPAI_LOCAL_REVIEW_ENDPOINT || needs.resolve.outputs.local_review_endpoint }}
+          SENPAI_LOCAL_REVIEW_MODEL: ${{ needs.resolve.outputs.local_review_model }}
+          SENPAI_LOCAL_REVIEW_API_KEY: ${{ secrets.MERGE_SENPAI_LOCAL_REVIEW_API_KEY }}
+          SENPAI_PROMPT_FILE: ${{ runner.temp }}/senpai-input/senpai.prompt.md
+          SENPAI_SCHEMA_FILE: ${{ runner.temp }}/senpai-input/senpai.schema.json
+          SENPAI_REVIEW_OUTPUT: ${{ runner.temp }}/senpai-review.json
+        run: node .github/merge-senpai/run-local-review.mjs
+
       - name: Normalize review JSON
-        if: steps.gate.outputs.enabled == 'true'
         env:
           CODEX_OUTCOME: ${{ steps.codex.outcome }}
+          LOCAL_REVIEW_OUTCOME: ${{ steps.local_review.outcome }}
+          REVIEW_PROVIDER: ${{ needs.resolve.outputs.review_provider }}
         run: |
           node <<'NODE'
           const fs = require("fs");
           const path = `${process.env.RUNNER_TEMP}/senpai-review.json`;
-          const statPath = `${process.env.RUNNER_TEMP}/pr.stat`;
+          const statPath = `${process.env.RUNNER_TEMP}/senpai-input/pr.stat`;
           let raw = fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "";
           let parsed;
           try {
@@ -220,36 +505,74 @@ jobs:
               .slice(0, 8)
               .join("; ");
           }
+          function normalizeString(value, fallback = "") {
+            return String(value ?? fallback).replace(/\r/g, "").trim();
+          }
 
           if (!parsed || !Array.isArray(parsed.findings)) {
-            const outcome = process.env.CODEX_OUTCOME || "unavailable";
+            const provider = process.env.REVIEW_PROVIDER || "unknown";
+            const outcome = provider === "codex-openai"
+              ? (process.env.CODEX_OUTCOME || "unavailable")
+              : (process.env.LOCAL_REVIEW_OUTCOME || "unavailable");
             const statSummary = readStatSummary();
             parsed = {
               verdict: "comment",
               grade: "fallback",
               summary: [
-                `The AI review request was ${outcome}, so Merge Senpai generated a deterministic fallback card instead of blocking the workflow.`,
+                `The ${provider} review request was ${outcome}, so Merge Senpai generated a deterministic fallback card instead of blocking the workflow.`,
                 statSummary ? `Diff summary: ${statSummary}.` : "",
                 "No AI findings were produced by the fallback path."
               ].filter(Boolean).join(" "),
               persona_line: "The model stalled at the gate, so I kept the artifact trail moving.",
-              briefing_script: "Merge Senpai preserved the review artifact and optional media flow while the AI review provider was unavailable.",
+              briefing_script: "Merge Senpai preserved the review artifact and optional media flow while the review provider was unavailable.",
               image_prompt: "A premium CI review host presents a resilient fallback card, abstract diff panels, green workflow checks, no readable text.",
-              video_prompt: "Animate a calm tech creator showing that the review card and media pipeline still completed after an AI review provider outage. Use abstract CI cards, checkmarks, and no readable text.",
+              video_prompt: "Animate a calm tech creator showing that the review card and media pipeline still completed after a review provider outage. Use abstract CI cards, checkmarks, and no readable text.",
               findings: [],
               fallback: true
             };
           }
-          parsed.video_prompt ||= parsed.briefing_script || parsed.summary || "";
+
+          parsed.verdict = ["clean", "comment", "request_changes"].includes(parsed.verdict) ? parsed.verdict : "comment";
+          parsed.grade = normalizeString(parsed.grade, "?");
+          parsed.summary = normalizeString(parsed.summary, "No summary returned.");
+          parsed.persona_line = normalizeString(parsed.persona_line, "I reviewed it because somebody had to.");
+          parsed.briefing_script = normalizeString(parsed.briefing_script, parsed.summary);
+          parsed.image_prompt = normalizeString(parsed.image_prompt, parsed.summary);
+          parsed.video_prompt = normalizeString(parsed.video_prompt, parsed.briefing_script || parsed.summary);
+          parsed.findings = Array.isArray(parsed.findings) ? parsed.findings.map((finding) => ({
+            severity: ["P0", "P1", "P2", "P3"].includes(String(finding?.severity)) ? String(finding.severity) : "P3",
+            title: normalizeString(finding?.title, "Untitled finding"),
+            file: normalizeString(finding?.file),
+            line: Number.isFinite(Number(finding?.line)) ? Number(finding.line) : 1,
+            message: normalizeString(finding?.message),
+            suggestion: normalizeString(finding?.suggestion),
+          })) : [];
+          parsed.media_plan ||= {
+            title: "Pull request review briefing",
+            safe_summary: parsed.summary,
+            story_beats: [{
+              duration_seconds: 5,
+              visual: "Abstract CI review cards and pull request status panels.",
+              motion: "Slow camera push with subtle interface motion.",
+              audio: parsed.briefing_script,
+            }],
+            negative_prompt: "readable source code, secrets, URLs, brand logos, real people",
+            captions: [`Verdict: ${parsed.verdict}`, `Findings: ${parsed.findings.length}`],
+          };
+
           fs.writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`);
           NODE
 
       - name: Post branded review
-        if: steps.gate.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          BASE_REF: ${{ needs.resolve.outputs.base_ref }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          REVIEW_PROVIDER: ${{ needs.resolve.outputs.review_provider }}
         run: |
           set -euo pipefail
+          cp "$RUNNER_TEMP/senpai-input/base-senpai.yml" "$RUNNER_TEMP/base-senpai.yml"
           node <<'NODE'
           const fs = require("fs");
           const review = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/senpai-review.json`, "utf8"));
@@ -258,9 +581,6 @@ jobs:
           const blockers = findings.filter(f => ["P0", "P1"].includes(String(f.severity))).length;
           const avatarUrl = `https://raw.githubusercontent.com/${process.env.GITHUB_REPOSITORY}/${process.env.BASE_REF}/.github/merge-senpai/avatar.png`;
           const marker = `<!-- merge-senpai:review:${process.env.PR_NUMBER}:${process.env.HEAD_SHA} -->`;
-          const baseConfig = fs.existsSync(`${process.env.RUNNER_TEMP}/base-senpai.yml`)
-            ? fs.readFileSync(`${process.env.RUNNER_TEMP}/base-senpai.yml`, "utf8")
-            : "";
 
           function mdEscape(value) {
             return String(value ?? "").replace(/\r/g, "").trim();
@@ -281,10 +601,6 @@ jobs:
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;");
           }
-          function configValue(name, fallback = "") {
-            const pattern = new RegExp(`(?:^|\\n)\\s{0,2}${name}:\\s*"?([^"\\n#]+)"?`);
-            return (baseConfig.match(pattern)?.[1] || fallback).trim();
-          }
 
           const verdict = mdEscape(review.verdict || "comment");
           const grade = mdEscape(review.grade || "?");
@@ -295,21 +611,16 @@ jobs:
           };
           const verdictLabel = verdictLabels[verdict] || "Review";
           const reviewTitle = `${verdictLabel} (${grade})`;
-          const storageBranch = configValue("storage_branch", "senpai-media");
-          const imageFile = fs.readdirSync(process.env.RUNNER_TEMP).find(name => name.startsWith("senpai-briefing-image."));
-          const hasVideo = fs.existsSync(`${process.env.RUNNER_TEMP}/senpai-briefing.mp4`);
-          const hasImage = Boolean(imageFile);
+          const provider = mdEscape(process.env.REVIEW_PROVIDER || "unknown");
 
           let body = `${marker}\n<img src="${avatarUrl}" width="72" align="right" alt="Merge Senpai" />\n\n`;
           body += `# Merge Senpai Review: ${reviewTitle}\n\n`;
           body += `**Grade:** ${grade}  \n`;
           body += `**Verdict:** \`${verdict}\`  \n`;
-          body += `**Findings:** ${findings.length} total, ${blockers} blocking-class\n\n`;
+          body += `**Findings:** ${findings.length} total, ${blockers} blocking-class  \n`;
+          body += `**Review provider:** \`${provider}\`\n\n`;
           body += `> ${mdEscape(review.persona_line || "I reviewed it because somebody had to.")}\n\n`;
           body += `${mdEscape(review.summary || "No summary returned.")}\n\n`;
-          if (hasImage || hasVideo) {
-            body += `**Optional Higgsfield media:** generated locally. Merge Senpai will add a separate media comment if publishing to \`${storageBranch}\` succeeds.\n\n`;
-          }
 
           if (findings.length) {
             body += `## Findings\n\n`;
@@ -331,12 +642,14 @@ jobs:
             }
           } else {
             body += fallback
-              ? `No AI findings were produced by the fallback path. Re-run once provider quota is available for a full AI review.\n\n`
+              ? `No AI findings were produced by the fallback path. Re-run once provider capacity is available for a full AI review.\n\n`
               : `No material findings. Keep shipping carefully.\n\n`;
           }
 
           body += `---\n`;
-          body += `Generated inside this repository by \`Merge Senpai\` using the repository's own \`MERGE_SENPAI_OPENAI_KEY\`.\n`;
+          body += provider === "codex-openai"
+            ? `Generated inside this repository by \`Merge Senpai\` using the repository's own \`MERGE_SENPAI_OPENAI_KEY\`.\n`
+            : `Generated inside this repository by \`Merge Senpai\` using the configured local structured-output review provider.\n`;
           fs.writeFileSync(`${process.env.RUNNER_TEMP}/senpai-review.md`, body);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n`);
 
@@ -350,11 +663,6 @@ jobs:
               <p>${htmlEscape(f.message || "")}</p>
             </article>
           `).join("");
-          const mediaSection = (hasImage || hasVideo) ? `
-              <section>
-                <h2>Optional Media</h2>
-                <p>Higgsfield media generated locally. A separate PR comment links the committed assets if publishing to ${htmlEscape(storageBranch)} succeeds.</p>
-              </section>` : "";
           const html = `<!doctype html>
           <html lang="en">
           <head>
@@ -374,7 +682,6 @@ jobs:
             <main>
               <header><img src="${avatarSrc}" alt=""><div><h1>Merge Senpai Review: ${htmlEscape(reviewTitle)}</h1><p>${htmlEscape(review.persona_line || "")}</p></div></header>
               <section><h2>${htmlEscape(verdictLabel)}</h2><p>${htmlEscape(review.summary || "")}</p>${rows || (fallback ? "<p>No AI findings were produced by the fallback path.</p>" : "<p>No material findings. Keep shipping carefully.</p>")}</section>
-              ${mediaSection}
             </main>
           </body>
           </html>`;
@@ -385,107 +692,146 @@ jobs:
             || gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/senpai-review.md" \
             || true
 
-      - name: Upload branded review card
-        if: steps.gate.outputs.enabled == 'true'
+      - name: Upload review output bundle
         uses: actions/upload-artifact@v4
         with:
-          name: merge-senpai-pr-${{ env.PR_NUMBER }}
-          path: ${{ runner.temp }}/senpai-report.html
+          name: merge-senpai-output-pr-${{ needs.resolve.outputs.pr_number }}
+          path: |
+            ${{ runner.temp }}/senpai-review.json
+            ${{ runner.temp }}/senpai-review.md
+            ${{ runner.temp }}/senpai-report.html
+            ${{ runner.temp }}/base-senpai.yml
           if-no-files-found: error
           retention-days: 14
 
-      - name: Generate Higgsfield media briefing
-        if: steps.gate.outputs.enabled == 'true'
-        id: higgsfield
+      - name: Mark review output
+        id: review_output
+        run: echo "review_posted=true" >> "$GITHUB_OUTPUT"
+
+  media:
+    name: media
+    needs:
+      - resolve
+      - review
+    if: needs.review.outputs.review_posted == 'true' && needs.resolve.outputs.media_enabled == 'true'
+    runs-on: ${{ fromJSON(needs.resolve.outputs.media_runs_on) }}
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+    outputs:
+      generated: ${{ steps.generate.outputs.generated }}
+      provider: ${{ steps.generate.outputs.provider }}
+      skip_reason: ${{ steps.generate.outputs.skip_reason }}
+    steps:
+      - name: Checkout trusted Merge Senpai scripts
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.base_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download review output bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: merge-senpai-output-pr-${{ needs.resolve.outputs.pr_number }}
+          path: ${{ runner.temp }}/senpai-output
+
+      - name: Generate provider media
+        id: generate
         continue-on-error: true
-        timeout-minutes: 10
         env:
           HIGGS_KEY_ID: ${{ secrets.HIGGS_KEY_ID }}
           HIGGS_API_SECRET: ${{ secrets.HIGGS_API_SECRET }}
           REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          SENPAI_REVIEW_JSON: ${{ runner.temp }}/senpai-output/senpai-review.json
+          SENPAI_MEDIA_PROVIDER: ${{ needs.resolve.outputs.media_provider }}
+          SENPAI_MEDIA_DURATION: ${{ needs.resolve.outputs.media_duration }}
+          SENPAI_SELF_HOSTED_SAFETY_VERDICT: ${{ needs.resolve.outputs.self_hosted_safety_verdict }}
+          SENPAI_HIGGSFIELD_IMAGE_ENDPOINT: ${{ needs.resolve.outputs.higgsfield_image_endpoint }}
+          SENPAI_HIGGSFIELD_VIDEO_ENDPOINT: ${{ needs.resolve.outputs.higgsfield_video_endpoint }}
+          SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT: ${{ needs.resolve.outputs.higgsfield_fallback_image_endpoint }}
+          SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT: ${{ needs.resolve.outputs.higgsfield_fallback_video_endpoint }}
+          SENPAI_HIGGSFIELD_MAX_POLL_MS: ${{ needs.resolve.outputs.higgsfield_max_poll_ms }}
+          SENPAI_HIGGSFIELD_PRIVATE: ${{ needs.resolve.outputs.higgsfield_private }}
+          SENPAI_LTX_MODEL_DIR: ${{ needs.resolve.outputs.ltx_model_dir }}
+          SENPAI_LTX_COMMAND: ${{ needs.resolve.outputs.ltx_command }}
+          SENPAI_LTX_ARGS_JSON: ${{ needs.resolve.outputs.ltx_args_json }}
+          SENPAI_LTX_SECONDS: ${{ needs.resolve.outputs.ltx_seconds }}
+          SENPAI_LTX_FPS: ${{ needs.resolve.outputs.ltx_fps }}
+          SENPAI_LTX_WIDTH: ${{ needs.resolve.outputs.ltx_width }}
+          SENPAI_LTX_HEIGHT: ${{ needs.resolve.outputs.ltx_height }}
         run: |
           set -euo pipefail
-          config_value() {
-            sed -n -E "s/^  $1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p; s/^$1:[[:space:]]*\"?([^\"#]+)\"?.*/\1/p" "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true
-          }
-          bool_value() {
-            printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
-          }
-          set_higgsfield_env() {
-            local name="$1"
-            local config_key="$2"
-            local value
-            value="$(config_value "$config_key")"
-            export "$name=$value"
-          }
-
-          enabled="$(bool_value "$(config_value higgsfield_video)")"
-          if [ "$enabled" != "true" ]; then
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          private_allowed="$(bool_value "$(config_value higgsfield_private)")"
-          if [ "$REPOSITORY_PRIVATE" = "true" ] && [ "$private_allowed" != "true" ]; then
-            echo "::warning::Higgsfield video skipped for private repository because media.higgsfield_private is not true."
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           if [ -n "${HIGGS_KEY_ID:-}" ]; then echo "::add-mask::$HIGGS_KEY_ID"; fi
           if [ -n "${HIGGS_API_SECRET:-}" ]; then echo "::add-mask::$HIGGS_API_SECRET"; fi
-          if [ ! -f .github/merge-senpai/generate-higgsfield-video.mjs ]; then
-            mkdir -p .github/merge-senpai
-            if ! git show "origin/$BASE_REF:.github/merge-senpai/generate-higgsfield-video.mjs" > .github/merge-senpai/generate-higgsfield-video.mjs 2>/dev/null; then
-              echo "::warning::Higgsfield media skipped because the helper is missing from the checked-out PR tree and base branch."
-              echo "generated=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_ENDPOINT higgsfield_image_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_ENDPOINT higgsfield_video_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_IMAGE_ENDPOINT higgsfield_fallback_image_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_FALLBACK_VIDEO_ENDPOINT higgsfield_fallback_video_endpoint
-          set_higgsfield_env SENPAI_HIGGSFIELD_DURATION higgsfield_duration
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_RESOLUTION higgsfield_image_resolution
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_QUALITY higgsfield_image_quality
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_SIZE higgsfield_image_size
-          set_higgsfield_env SENPAI_HIGGSFIELD_IMAGE_BATCH_SIZE higgsfield_image_batch_size
-          set_higgsfield_env SENPAI_HIGGSFIELD_VIDEO_MODEL higgsfield_video_model
-          set_higgsfield_env SENPAI_HIGGSFIELD_ENHANCE_PROMPT higgsfield_enhance_prompt
-          set_higgsfield_env SENPAI_HIGGSFIELD_ASPECT_RATIO higgsfield_aspect_ratio
-          set_higgsfield_env SENPAI_HIGGSFIELD_MAX_POLL_MS higgsfield_max_poll_ms
-          if ! node .github/merge-senpai/generate-higgsfield-video.mjs; then
-            echo "::warning::Higgsfield media generation failed; continuing with the review card only."
-            echo "generated=false" >> "$GITHUB_OUTPUT"
-          fi
+          node .github/merge-senpai/generate-media.mjs
 
-      - name: Upload Higgsfield media briefing
-        if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true'
-        continue-on-error: true
+      - name: Upload media output bundle
+        if: steps.generate.outputs.generated == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: merge-senpai-media-pr-${{ env.PR_NUMBER }}
+          name: merge-senpai-media-pr-${{ needs.resolve.outputs.pr_number }}
           path: |
             ${{ runner.temp }}/senpai-briefing.mp4
             ${{ runner.temp }}/senpai-briefing-image.*
-          if-no-files-found: error
+            ${{ runner.temp }}/senpai-media.json
+            ${{ runner.temp }}/senpai-video.json
+            ${{ runner.temp }}/senpai-ltx-request.json
+          if-no-files-found: ignore
           retention-days: 14
 
-      - name: Publish to senpai-media branch
-        id: publish_media
-        if: steps.gate.outputs.enabled == 'true'
-        continue-on-error: true
+  publish_media:
+    name: publish media
+    needs:
+      - resolve
+      - review
+      - media
+    if: always() && needs.review.outputs.review_posted == 'true' && needs.resolve.outputs.publish_media_branch == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.base_ref }}
+          fetch-depth: 1
+
+      - name: Download review output bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: merge-senpai-output-pr-${{ needs.resolve.outputs.pr_number }}
+          path: ${{ runner.temp }}/senpai-output
+
+      - name: Download optional media output bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/senpai-media-output"
+          gh run download "$GITHUB_RUN_ID" \
+            --name "merge-senpai-media-pr-$PR_NUMBER" \
+            --dir "$RUNNER_TEMP/senpai-media-output" || true
+
+      - name: Publish report and optional media
+        id: publish
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          STORAGE_BRANCH: ${{ needs.resolve.outputs.storage_branch }}
+          MEDIA_PROVIDER: ${{ needs.resolve.outputs.media_provider }}
         run: |
           set -euo pipefail
           echo "published=false" >> "$GITHUB_OUTPUT"
-          if ! grep -Eq '^  publish_media_branch:[[:space:]]*true|^publish_media_branch:[[:space:]]*true' "$RUNNER_TEMP/base-senpai.yml"; then
-            exit 0
-          fi
-          branch="$(sed -n -E 's/^  storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p; s/^storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
-          branch="${branch:-senpai-media}"
+          branch="${STORAGE_BRANCH:-senpai-media}"
+          provider="$(printf '%s' "${MEDIA_PROVIDER:-static}" | tr -c 'A-Za-z0-9._-' '-')"
           tmp="$(mktemp -d)"
           git worktree add --detach "$tmp" HEAD
           (
@@ -502,23 +848,23 @@ jobs:
             fi
             mkdir -p "pr-$PR_NUMBER"
             report_path="pr-$PR_NUMBER/$HEAD_SHA.html"
-            cp "$RUNNER_TEMP/senpai-report.html" "$report_path"
+            cp "$RUNNER_TEMP/senpai-output/senpai-report.html" "$report_path"
             image_path=""
-            image_source="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
+            image_source="$(find "$RUNNER_TEMP/senpai-media-output" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
             if [ -n "$image_source" ]; then
               image_ext="${image_source##*.}"
-              image_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield-keyframe.$image_ext"
+              image_path="pr-$PR_NUMBER/$HEAD_SHA-$provider-keyframe.$image_ext"
               cp "$image_source" "$image_path"
             fi
             video_path=""
-            if [ -f "$RUNNER_TEMP/senpai-briefing.mp4" ]; then
-              video_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield.mp4"
-              cp "$RUNNER_TEMP/senpai-briefing.mp4" "$video_path"
+            if [ -f "$RUNNER_TEMP/senpai-media-output/senpai-briefing.mp4" ]; then
+              video_path="pr-$PR_NUMBER/$HEAD_SHA-$provider.mp4"
+              cp "$RUNNER_TEMP/senpai-media-output/senpai-briefing.mp4" "$video_path"
             fi
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/player.html" "player.html" 2>/dev/null || true
             cp "$GITHUB_WORKSPACE/.github/merge-senpai/avatar.png" "avatar.png" 2>/dev/null || true
             published_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            REPORT_PATH="$report_path" IMAGE_PATH="$image_path" VIDEO_PATH="$video_path" PUBLISHED_AT="$published_at" node <<'NODE'
+            REPORT_PATH="$report_path" IMAGE_PATH="$image_path" VIDEO_PATH="$video_path" PROVIDER="$provider" PUBLISHED_AT="$published_at" node <<'NODE'
             const fs = require("fs");
             const repo = process.env.GITHUB_REPOSITORY;
             const pr = process.env.PR_NUMBER;
@@ -526,6 +872,7 @@ jobs:
             const reportPath = process.env.REPORT_PATH;
             const imagePath = process.env.IMAGE_PATH || "";
             const videoPath = process.env.VIDEO_PATH || "";
+            const provider = process.env.PROVIDER || "static";
             const publishedAt = process.env.PUBLISHED_AT;
             const readme = [
               "# Merge Senpai Media",
@@ -534,10 +881,10 @@ jobs:
               "",
               `- Latest report: [PR #${pr} at ${sha}](${reportPath})`,
               ...(imagePath ? [
-                `- Latest generated keyframe: [PR #${pr} Higgsfield image](${imagePath})`,
+                `- Latest generated keyframe: [PR #${pr} ${provider} image](${imagePath})`,
               ] : []),
               ...(videoPath ? [
-                `- Latest video briefing: [PR #${pr} Higgsfield MP4](${videoPath})`,
+                `- Latest video briefing: [PR #${pr} ${provider} MP4](${videoPath})`,
                 `- Player link: [player.html#v=./${videoPath}](player.html#v=./${videoPath})`,
               ] : []),
               `- Source PR: https://github.com/${repo}/pull/${pr}`,
@@ -547,23 +894,19 @@ jobs:
               "and optional generated PR recap videos here so Merge Senpai can demo durable",
               "artifacts without running a database, bucket, or asset server.",
               "",
-              "Presentation note: this is a GitHub-flavored nod to the Infinite Storage Glitch",
-              "idea of using an unexpected host as storage:",
-              "https://github.com/KKarmugil/Infinite_Storage_Glitch",
-              "",
             ].join("\n");
             fs.writeFileSync("README.md", readme);
 
             const imagePanel = imagePath ? [
               '    <section class="panel">',
               "      <h2>Generated Keyframe</h2>",
-              `      <p><a href="./${imagePath}">Open generated Higgsfield image</a></p>`,
+              `      <p><a href="./${imagePath}">Open generated ${provider} image</a></p>`,
               "    </section>",
             ].join("\n") : "";
             const videoPanel = videoPath ? [
               '    <section class="panel">',
               "      <h2>Video Briefing</h2>",
-              `      <p><a href="./${videoPath}">Open generated Higgsfield MP4</a></p>`,
+              `      <p><a href="./${videoPath}">Open generated ${provider} MP4</a></p>`,
               `      <p><a href="./player.html#v=./${videoPath}">Open in the static player</a></p>`,
               "    </section>",
             ].join("\n") : "";
@@ -602,11 +945,6 @@ jobs:
               "    </section>",
               imagePanel,
               videoPanel,
-              '    <section class="panel">',
-              "      <h2>Presentation Hook</h2>",
-              "      <p>Inspired by the playful Infinite Storage Glitch idea: if video can be storage, a Git branch can be a tiny review-card shelf.</p>",
-              '      <p><a href="https://github.com/KKarmugil/Infinite_Storage_Glitch">Infinite Storage Glitch reference</a></p>',
-              "    </section>",
               "  </main>",
               "</body>",
               "</html>",
@@ -620,23 +958,33 @@ jobs:
           )
           git worktree remove "$tmp" --force
           echo "published=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-      - name: Post Higgsfield media comment
-        if: steps.gate.outputs.enabled == 'true' && steps.higgsfield.outputs.generated == 'true' && steps.publish_media.outputs.published == 'true'
-        continue-on-error: true
+      - name: Post media comment
+        if: steps.publish.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          STORAGE_BRANCH: ${{ steps.publish.outputs.branch }}
+          MEDIA_PROVIDER: ${{ needs.resolve.outputs.media_provider }}
         run: |
           set -euo pipefail
-          branch="$(sed -n -E 's/^  storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p; s/^storage_branch:[[:space:]]*"?([^"#]+)"?.*/\1/p' "$RUNNER_TEMP/base-senpai.yml" | head -1 | xargs || true)"
-          branch="${branch:-senpai-media}"
+          branch="${STORAGE_BRANCH:-senpai-media}"
+          provider="$(printf '%s' "${MEDIA_PROVIDER:-static}" | tr -c 'A-Za-z0-9._-' '-')"
           marker="<!-- merge-senpai:media:$PR_NUMBER:$HEAD_SHA -->"
-          video_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield.mp4"
+          video_path=""
+          if [ -f "$RUNNER_TEMP/senpai-media-output/senpai-briefing.mp4" ]; then
+            video_path="pr-$PR_NUMBER/$HEAD_SHA-$provider.mp4"
+          fi
+          if [ -z "$video_path" ]; then
+            exit 0
+          fi
           image_path=""
-          image_source="$(find "$RUNNER_TEMP" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
+          image_source="$(find "$RUNNER_TEMP/senpai-media-output" -maxdepth 1 -type f -name 'senpai-briefing-image.*' | head -1 || true)"
           if [ -n "$image_source" ]; then
             image_ext="${image_source##*.}"
-            image_path="pr-$PR_NUMBER/$HEAD_SHA-higgsfield-keyframe.$image_ext"
+            image_path="pr-$PR_NUMBER/$HEAD_SHA-$provider-keyframe.$image_ext"
           fi
           video_url="https://github.com/$GITHUB_REPOSITORY/blob/$branch/$video_path"
           player_url="https://github.com/$GITHUB_REPOSITORY/blob/$branch/player.html#v=./$video_path"
@@ -645,7 +993,7 @@ jobs:
             echo "$marker"
             echo "## Merge Senpai Video Briefing"
             echo
-            echo "Higgsfield generated a best-effort media recap for this review."
+            echo "Merge Senpai generated a best-effort media recap with provider \`$provider\`."
             echo
             echo "- Video: [$video_path]($video_url)"
             echo "- Player: [open static player]($player_url)"

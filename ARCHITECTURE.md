@@ -4,6 +4,16 @@ Last updated: 2026-07-08
 
 ## 0. Executive Decision
 
+2026-07-10 update: media and review are now provider abstractions in the
+installed workflow template. The review provider defaults to `codex-openai`, but
+can opt into local structured-output providers (`local-vllm`, `local-ollama`,
+or `local-llama-cpp`). The media provider defaults to `off`, can still use
+Higgsfield, and now has an `ltx-local` path for prewarmed self-hosted GPU
+runners. Self-hosted model execution is fail-closed for fork PRs and public
+repositories by default. The workflow prepares bounded PR artifacts on
+GitHub-hosted Ubuntu, then passes validated JSON to review/media providers so
+local GPU jobs do not need to checkout untrusted PR code.
+
 2026-07-08 update: the canonical path is a BYOK workflow installed in the target
 repository plus a Cloudflare Worker GitHub App dispatcher. The install payload
 lives as static files in `templates/`; the Worker copies missing files into each

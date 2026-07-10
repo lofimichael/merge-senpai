@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { normalizePrivateKey, parseReviewCommand, resolveGitHubAppConfig } from "../src/worker.js";
+import { SETUP_FILES, normalizePrivateKey, parseReviewCommand, resolveGitHubAppConfig } from "../src/worker.js";
 
 describe("resolveGitHubAppConfig", () => {
   it("prefers the signed webhook installation app id over the Worker secret", () => {
@@ -32,5 +32,12 @@ describe("webhook helpers", () => {
 
   it("accepts natural senpai PR comments", () => {
     assert.equal(parseReviewCommand("can senpai look at this?"), "review");
+  });
+});
+
+describe("setup payload", () => {
+  it("installs the generic media and local review helpers", () => {
+    assert.ok(SETUP_FILES.includes(".github/merge-senpai/generate-media.mjs"));
+    assert.ok(SETUP_FILES.includes(".github/merge-senpai/run-local-review.mjs"));
   });
 });
