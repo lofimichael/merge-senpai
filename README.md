@@ -1,6 +1,12 @@
 
 # Merge Senpai
 
+> [!IMPORTANT]
+> **Project status: frozen hackathon edition.** This public repository is
+> preserved as the completed Merge Senpai hackathon artifact. It is not under
+> active feature development. See [PROJECT_STATUS.md](PROJECT_STATUS.md) for the
+> maintenance policy.
+
 <img width="192" height="192" alt="merge-senpai" src="https://github.com/user-attachments/assets/c1a41945-96df-4946-8577-34aee8c7d3c5" />
 
 Merge Senpai is a BYOK PR reviewer that runs the code review inside the installing repository's GitHub Actions and uses a lightweight GitHub App dispatcher as its control plane.
